@@ -216,9 +216,9 @@ $('scanCrop').onpointerdown=e=>{if(!display)return;drag=point(e);$('scanCrop').s
 $('scanCrop').onpointermove=e=>{if(!drag)return;const [x,y]=point(e);region=[Math.min(x,drag[0]),Math.min(y,drag[1]),Math.max(x,drag[0]),Math.max(y,drag[1])];guide()};
 $('scanCrop').onpointerup=e=>{if(!drag)return;$('scanCrop').onpointermove(e);drag=null;if(region[2]-region[0]<.02||region[3]-region[1]<.02)region=null;guide()};
 function add(example=false){if(!source)return;try{
- const [x,y,x1,y1]=region||[0,0,1,1],w=(x1-x)*source.width,h=(y1-y)*source.height,f=Math.min(1,900/Math.max(w,h)),c=cv(Math.max(2,Math.round(w*f)),Math.max(2,Math.round(h*f)));c.getContext('2d').drawImage(source,x*source.width,y*source.height,w,h,0,0,c.width,c.height);const mesh=photoMesh(c);
+ const [x,y,x1,y1]=region||[0,0,1,1],w=(x1-x)*source.width,h=(y1-y)*source.height,f=Math.min(1,900/Math.max(w,h)),c=cv(Math.max(2,Math.round(w*f)),Math.max(2,Math.round(h*f)));c.getContext('2d').drawImage(source,x*source.width,y*source.height,w,h,0,0,c.width,c.height);const {texture,...mesh}=photoMesh(c);
  const swap=region&&replaceOnCrop&&scene.objects.includes(replaceOnCrop);if(!example&&pristine){scene.objects=[];pristine=false}if(!swap&&scene.objects.length>=8)throw Error('한 공간에는 8개까지 배치할 수 있어요.');
- const i=swap?scene.objects.indexOf(replaceOnCrop):scene.objects.length;const o={name:title+(region?' · '+(i+1):''),mesh,photo:c.toDataURL('image/png'),mat:0,angle:0,thickness:.34,size:i?.68:1,x:i?((i%2?1:-1)*(1+.28*Math.floor(i/2))):0,y:i?((i%3)-1)*.45:0,z:0};
+ const i=swap?scene.objects.indexOf(replaceOnCrop):scene.objects.length;const o={name:title+(region?' · '+(i+1):''),mesh,photo:(texture||c).toDataURL('image/png'),mat:0,angle:0,thickness:.34,size:i?.68:1,x:i?((i%2?1:-1)*(1+.28*Math.floor(i/2))):0,y:i?((i%3)-1)*.45:0,z:0};
  if(swap)scene.objects[i]=o;else scene.objects.push(o);selected=i;replaceOnCrop=region?null:o;scene.yaw=scene.pitch=0;scene.camera=4.8;refresh();$('scanStatus').textContent='입체 메시 생성 완료 · 드래그해 옆면과 뒷면을 확인하세요.'
  }catch(err){$('scanStatus').textContent=err.message}}
 function detectBoard(img){
