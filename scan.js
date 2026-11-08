@@ -16,7 +16,7 @@ function profile(im){
    const strength=Math.max(Math.abs(luma[k+1]-luma[k-1]),Math.abs(luma[k+192]-luma[k-192]));
    if(alpha?d[k*4+3]>=128:strength>=24)points.push(x);
   }
-  if(points.length<4)continue;
+  if(points.length<2)continue;
   const left=points[0],right=points.at(-1);
   if(right-left<3)continue;
   rows[y]=[left,right];xmin=Math.min(xmin,left);xmax=Math.max(xmax,right);ymin=Math.min(ymin,y);ymax=y;
@@ -24,20 +24,63 @@ function profile(im){
  }
  if(xmax-xmin<4||ymax-ymin<4)throw Error('제품 외곽을 찾기 어려워요. 단색 배경에서 다시 찍어 주세요.');
  const w=xmax-xmin+1,h=ymax-ymin+1,crop=cv(480,480);crop.getContext('2d').drawImage(im,xmin/192*im.width,ymin/192*im.height,w/192*im.width,h/192*im.height,0,0,480,480);
- function span(t){const y=Math.round(ymin+t*(h-1));let sum=0,n=0;for(let j=Math.max(ymin,y-2);j<=Math.min(ymax,y+2);j++){const r=rows[j];if(r){sum+=(r.at(-1)-r[0]+1)/w;n++}}return Math.max(.05,sum/(n||1))}
- function extent(t){const r=cols[Math.round(xmin+t*(w-1))];return r?[(r[0]-ymin)/h,(r.at(-1)-ymin+1)/h]:[.5,.5]}
- return{crop,span,extent,aspect:w*im.width/(h*im.height)}
+ // On uniform backdrops, background-colored pixels can also occur inside a handle.
+ const bg=[0,1,2].map(ch=>edge.reduce((sum,k)=>sum+d[k*4+ch],0)/edge.length);
+ const distance=k=>Math.max(...bg.map((v,ch)=>Math.abs(v-d[k*4+ch])));
+ const uniform=edge.every(k=>distance(k)<10);
+ const mask=new Uint8Array(192*192);
+ for(let y=ymin;y<=ymax;y++)if(rows[y])for(let x=rows[y][0];x<=rows[y][1];x++){
+  const k=y*192+x;mask[k]=alpha?d[k*4+3]>=128:uniform?distance(k)>16:true;
+ }
+ function inside(u,t){return mask[(ymin+Math.round(t*(h-1)))*192+xmin+Math.round(u*(w-1))]}
+ return{crop,inside,aspect:w*im.width/(h*im.height)}
+}
+function visualHull(views){
+ const height=2/views[0].aspect, depth=height*views[1].aspect;
+ const dims=[2,height,depth], counts=dims.map(v=>Math.max(12,Math.round(68*v/Math.max(...dims)))+2);
+ const [nx,ny,nz]=counts, stride=[1,nx,nx*ny], volume=new Uint8Array(nx*ny*nz);
+ const coord=(k,a)=>(k-.5)/(counts[a]-2);
+ for(let z=1;z<nz-1;z++)for(let y=1;y<ny-1;y++)for(let x=1;x<nx-1;x++){
+  const u=coord(x,0),t=1-coord(y,1),s=coord(z,2);
+  volume[x+y*nx+z*nx*ny]=views[0].inside(u,t)&&views[1].inside(1-s,t)&&views[2].inside(u,s)&&views[3].inside(u,1-s);
+ }
+ // One surface vertex per boundary cell, at the mean of its edge crossings.
+ const cells=new Int32Array(volume.length).fill(-1),points=[],positions=[],uv=[],indices=[],vertices=new Map();
+ const corners=[0,1,nx,nx+1,nx*ny,nx*ny+1,nx*ny+nx,nx*ny+nx+1];
+ for(let z=0;z<nz-1;z++)for(let y=0;y<ny-1;y++)for(let x=0;x<nx-1;x++){
+  const k=x+y*nx+z*nx*ny,base=[x,y,z],sum=[0,0,0];let hits=0;
+  if(corners.every(off=>volume[k+off]===volume[k]))continue;
+  for(let c=0;c<8;c++)for(let a=0;a<3;a++){
+   const bit=1<<a;
+   if((c&bit)||volume[k+corners[c]]===volume[k+corners[c|bit]])continue;
+   hits++;for(let b=0;b<3;b++)sum[b]+=b===a?.5:(c>>b)&1;
+  }
+  cells[k]=points.length;points.push(sum.map((s,b)=>(coord(base[b]+s/hits,b)-.5)*dims[b]));
+ }
+ function vertex(cell,face){
+  const id=cells[cell],key=id*4+face;
+  if(vertices.has(key))return vertices.get(key);
+  const p=points[id],u=.5+p[0]/2,t=.5-p[1]/height,s=.5+p[2]/depth;
+  const i=positions.length/3;positions.push(...p);uv.push(((face%2)+.002+.996*(face===1?1-s:u))/2,((face>>1)+.002+.996*(face===2?s:face===3?1-s:t))/2);
+  vertices.set(key,i);return i;
+ }
+ for(let k=0;k<volume.length;k++)if(cells[k]>=0){
+  for(let a=0;a<3;a++){
+   if(volume[k]===volume[k+stride[a]])continue;
+   const b=stride[(a+1)%3],c=stride[(a+2)%3],quad=[k,k-b,k-b-c,k-c];
+   if(quad.some(i=>cells[i]===undefined||cells[i]<0))continue;
+   if(!volume[k])quad.reverse();
+   const face=a===0?1:a===2?0:volume[k]?2:3;
+   const [i,j,l,m]=quad.map(q=>vertex(q,face));indices.push(i,j,l,i,l,m);
+  }
+ }
+ if(!indices.length)throw Error('네 방향의 윤곽이 겹치지 않아요. 사진 방향을 확인해 주세요.');
+ if(positions.length/3>65535)throw Error('표면이 너무 복잡해요. 배경을 단순하게 정리해 주세요.');
+ return {positions,uv,indices};
 }
 $('fourBuild').onclick=()=>{try{if(!pristine&&scene.objects.length>=8)throw Error('먼저 오브제 하나를 삭제해 주세요.');const v=views.map(profile),atlas=cv(960,960),g=atlas.getContext('2d');v.forEach((f,i)=>g.drawImage(f.crop,i%2*480,(i>>1)*480));
- const top=v[2].crop.getContext('2d').getImageData(0,0,480,480).data;let contrast=0,n=0;for(let y=60;y<420;y+=5)for(let x=60;x<420;x+=5){const i=4*(480*y+x);contrast+=Math.abs(top[i]-top[i+20]);n++}
- const relief=Math.min(.08,.008+contrast/n*.0015),height=2/v[0].aspect,depth=Math.min(4,1/v[2].aspect+v[1].aspect/v[0].aspect),positions=[],uv=[],indices=[];
- function pt(x,y,z,u,t,face){const i=positions.length/3;positions.push(x,y,z);uv.push((face%2+.002+.996*u)/2,((face>>1)+.002+.996*t)/2);return i}
- const ring=(j,i)=>{const t=j/32,a=2*Math.PI*i/128,xx=Math.sin(a),f=v[2].extent((xx+1)/2),b=v[3].extent((xx+1)/2),z=Math.cos(a)>=0?((f[1]+b[1])/2-.5):((f[0]+b[0])/2-.5);return [xx*v[0].span(t),(.5-t)*height,z*depth*v[1].span(t)]};
- for(let i=0;i<128;i++){const front=Math.abs(Math.cos((i+.5)*Math.PI/64))>.707,face=front?0:1;for(let j=0;j<32;j++){const ids=[[j,i],[j,i+1],[j+1,i+1],[j+1,i]].map(([k,l])=>{const [x,y,z]=ring(k,l);return pt(x,y,z,front?(x+1)/2:.5-z/depth,k/32,face)});indices.push(ids[0],ids[3],ids[1],ids[1],ids[3],ids[2])}}
- for(const bottom of [false,true]){const start=positions.length/3;for(let r=0;r<=16;r++)for(let i=0;i<=128;i++){let [x,y,z]=ring(bottom?32:0,i);x*=r/16;z*=r/16;const t=.5+z/depth;pt(x,y+(bottom?-1:1)*relief*(1-(r/16)**2),z,(x+1)/2,bottom?1-t:t,bottom?3:2);if(r&&i){const a=start+r*129+i,ids=[a-130,a-1,a,a-130,a,a-129];indices.push(...(bottom?ids.reverse():ids))}}}
- // Orient every triangle away from the object centre, including both caps.
- for(let j=0;j<indices.length;j+=3){const [a,b,c]=indices.slice(j,j+3).map(i=>i*3),p=positions,ux=p[b]-p[a],uy=p[b+1]-p[a+1],uz=p[b+2]-p[a+2],vx=p[c]-p[a],vy=p[c+1]-p[a+1],vz=p[c+2]-p[a+2];if((uy*vz-uz*vy)*p[a]+(uz*vx-ux*vz)*p[a+1]+(ux*vy-uy*vx)*p[a+2]<0)[indices[j+1],indices[j+2]]=[indices[j+2],indices[j+1]]}
- if(pristine){scene.objects=[];pristine=false}scene.objects.push({name:'4컷 제품 '+(scene.objects.length+1),mesh:{positions,uv,indices},photo:atlas.toDataURL('image/png'),inner:relief*.24,mat:0,angle:0,thickness:1,size:.83,x:0,y:0,z:0});selected=scene.objects.length-1;scene.pitch=.58;scene.yaw=.25;refresh();$('fourStatus').textContent='4면 외형 생성 완료 · 하이라이트를 참고해 윗면 곡률을 추정했어요. 재질에서 글라스를 적용할 수 있어요.'}catch(e){$('fourStatus').textContent=e.message}};
+ const mesh=visualHull(v);
+ if(pristine){scene.objects=[];pristine=false}scene.objects.push({name:'4컷 제품 '+(scene.objects.length+1),mesh,photo:atlas.toDataURL('image/png'),inner:0,mat:0,angle:0,thickness:1,size:.83,x:0,y:0,z:0});selected=scene.objects.length-1;scene.pitch=.58;scene.yaw=.25;refresh();$('fourStatus').textContent='4면 외형 생성 완료 · 네 방향의 윤곽을 겹쳐 외형을 만들었어요. 재질에서 글라스를 적용할 수 있어요.'}catch(e){$('fourStatus').textContent=e.message}};
 
 const activeObj=()=>scene.objects[selected];
 runMeshScene($('scanCanvas'),scene);
