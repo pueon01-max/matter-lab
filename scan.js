@@ -104,9 +104,24 @@ function visualHull(views){
  if(positions.length/3>65535)throw Error('표면이 너무 복잡해요. 배경을 단순하게 정리해 주세요.');
  return {positions,uv,indices};
 }
-$('fourBuild').onclick=()=>{try{if(!pristine&&scene.objects.length>=8)throw Error('먼저 오브제 하나를 삭제해 주세요.');const v=views.map(profile),atlas=cv(960,960),g=atlas.getContext('2d');v.forEach((f,i)=>g.drawImage(f.crop,i%2*480,(i>>1)*480));
- const mesh=visualHull(v);
- if(pristine){scene.objects=[];pristine=false}scene.objects.push({name:'4컷 제품 '+(scene.objects.length+1),mesh,photo:atlas.toDataURL('image/png'),inner:0,mat:0,angle:0,thickness:1,size:.83,x:0,y:0,z:0});selected=scene.objects.length-1;scene.pitch=.58;scene.yaw=.25;refresh();$('fourStatus').textContent='4면 외형 생성 완료 · 네 방향의 윤곽을 겹쳐 외형을 만들었어요. 재질에서 글라스를 적용할 수 있어요.'}catch(e){$('fourStatus').textContent=e.message}};
+let lastFourModel=null;
+$('fourBuild').onclick=()=>{
+ const status=$('fourStatus');
+ try{
+  const slot=scene.objects.indexOf(lastFourModel);
+  if(slot<0&&!pristine&&scene.objects.length>=8)throw Error('먼저 오브제 하나를 삭제해 주세요.');
+  const profiles=views.map(profile),atlas=cv(960,960),g=atlas.getContext('2d');
+  profiles.forEach((view,i)=>g.drawImage(view.crop,i%2*480,(i>>1)*480));
+  const model={name:$('fourInputs').querySelector('input').files[0].name.replace(/\.[^.]*$/,''),mesh:visualHull(profiles),photo:atlas.toDataURL('image/png'),inner:0,mat:0,angle:0,thickness:1,size:.83,x:0,y:0,z:0};
+  if(pristine){scene.objects=[];pristine=false}
+  selected=slot>=0?slot:scene.objects.length;
+  scene.objects[selected]=model;
+  lastFourModel=model;
+  Object.assign(scene,{pitch:.58,yaw:.25,camera:4.8});
+  refresh();
+  status.textContent=model.name+' · 새로 생성한 모델을 표시하고 있어요.';
+ }catch(error){status.textContent='생성 실패 · '+error.message+' 기존 장면을 유지했어요.'}
+};
 
 const activeObj=()=>scene.objects[selected];
 runMeshScene($('scanCanvas'),scene);
@@ -141,7 +156,7 @@ function detectBoard(img){
  return picks.slice(0,8).sort((a,b)=>Math.abs(a.ymin-b.ymin)<h*.12?a.xmin-b.xmin:a.ymin-b.ymin).map(g=>[Math.max(0,(g.xmin-2)/w),Math.max(0,(g.ymin-2)/h),Math.min(1,(g.xmax+3)/w),Math.min(1,(g.ymax+3)/h)])
 }
 
-async function load(src,name,example=false){const id=++uploadSeq;try{const img=new Image();img.src=src;await img.decode();if(id!==uploadSeq)return;source=img;title=name;region=drag=replaceOnCrop=null;guide();
+async function load(src,name,example=false){const id=++uploadSeq;try{const img=new Image();img.src=src;await img.decode();if(id!==uploadSeq||(example&&!pristine))return;source=img;title=name;region=drag=replaceOnCrop=null;guide();
  const picks=example?[]:detectBoard(img);
  if(picks.length){
  const room=pristine?8:8-scene.objects.length,items=picks.slice(0,room),first=pristine?0:scene.objects.length;
