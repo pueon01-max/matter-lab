@@ -68,13 +68,34 @@ function visualHull(views){
  // Average crossing directions across neighboring surface cells before choosing a camera.
  // A staircase on an inclined surface represents one slope, not alternating photo planes.
  const normals=new Float32Array(cells.length*3);
+ const neighbors=points.map(()=>new Set());
  for(let k=0;k<volume.length;k++)if(cells[k]>=0){
   for(let a=0;a<3;a++){
    if(volume[k]===volume[k+stride[a]])continue;
    const b=stride[(a+1)%3],c=stride[(a+2)%3],quad=[k,k-b,k-b-c,k-c];
    if(quad.some(i=>cells[i]===undefined||cells[i]<0))continue;
    if(!volume[k])quad.reverse();
+   for(let i=0;i<4;i++){
+    const first=cells[quad[i]],second=cells[quad[(i+1)%4]];
+    neighbors[first].add(second);neighbors[second].add(first);
+   }
    for(const q of quad)normals[q*3+a]+=volume[k]?1:-1;
+  }
+ }
+ // Relax the welded surface before projection splits vertices at texture seams.
+ // Limit displacement in world space so narrow parts retain their silhouette.
+ const original=points.slice();
+ const limit=1.65*Math.min(...dims.map((size,i)=>size/(counts[i]-2)));
+ for(let pass=0;pass<18;pass++){
+  const previous=points.slice();
+  for(let i=0;i<points.length;i++){
+   const adjacent=neighbors[i];
+   if(!adjacent.size)continue;
+   const mean=[0,0,0];
+   for(const j of adjacent)for(let axis=0;axis<3;axis++)mean[axis]+=previous[j][axis];
+   const offset=mean.map((sum,axis)=>previous[i][axis]*.35+.65*sum/adjacent.size-original[i][axis]);
+   const scale=Math.min(1,limit/(Math.hypot(...offset)||1));
+   points[i]=original[i].map((value,axis)=>value+scale*offset[axis]);
   }
  }
  let field=normals;
