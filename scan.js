@@ -33,7 +33,11 @@ function profile(im){
   const k=y*192+x;mask[k]=alpha?d[k*4+3]>=128:uniform?distance(k)>16:true;
  }
  function inside(u,t){return mask[(ymin+Math.round(t*(h-1)))*192+xmin+Math.round(u*(w-1))]}
- return{crop,inside,aspect:w*im.width/(h*im.height)}
+ function bounds(t){
+  const row=rows[ymin+Math.round(t*(h-1))]||[xmin,xmax];
+  return [(row[0]-xmin)/w,(row[1]-xmin+1)/w];
+ }
+ return{crop,inside,bounds,aspect:w*im.width/(h*im.height)}
 }
 function visualHull(views){
  const height=2/views[0].aspect, depth=height*views[1].aspect;
@@ -125,6 +129,58 @@ function visualHull(views){
  if(positions.length/3>65535)throw Error('표면이 너무 복잡해요. 배경을 단순하게 정리해 주세요.');
  return {positions,uv,indices};
 }
+function roundedScan(views,atlas){
+ const [front,side]=views,height=2/front.aspect,depth=height*side.aspect;
+ const segments=128,levels=80,positions=[],uv=[],indices=[];
+ const photos=views.slice(0,2).map(v=>v.crop.getContext('2d').getImageData(0,0,480,480).data);
+ const ctx=atlas.getContext('2d'),strip=ctx.createImageData(960,480);
+ function section(t){
+  return [front,side].map(v=>{
+   const sample=Math.min(.988,Math.max(.012,t));
+   const bounds=[-2,-1,0,1,2].map(d=>v.bounds(Math.min(1,Math.max(0,sample+d/192))));
+   return [0,1].map(i=>bounds.reduce((sum,b)=>sum+b[i],0)/bounds.length);
+  });
+ }
+ // Unwrap both side photographs into a continuous band before assigning UVs.
+ for(let row=0;row<480;row++){
+  const bounds=section(row/479);
+  for(let col=0;col<960;col++){
+   const a=(col/959-.5)*2*Math.PI,s=Math.sin(a),c=Math.cos(a);
+   const blend=Math.max(0,Math.min(1,(Math.abs(s)-.69)/.24)),w=blend*blend*(3-2*blend);
+   const offsets=[s*Math.sign(c||1),-c*Math.sign(s||1)].map((v,i)=>{
+    const [lo,hi]=bounds[i];return 4*(row*480+Math.round(479*(lo+(hi-lo)*(.5+.49*v))));
+   });
+   const dst=4*(row*960+col);
+   for(let ch=0;ch<3;ch++)strip.data[dst+ch]=photos[0][offsets[0]+ch]*(1-w)+photos[1][offsets[1]+ch]*w;
+   strip.data[dst+3]=255;
+  }
+ }
+ ctx.putImageData(strip,0,0);
+ function ring(row,cap,scale){
+  const t=row/levels,[[l,r],[near,far]]=section(t),base=positions.length/3;
+  for(let i=0;i<=segments;i++){
+   const u=i/segments,a=(u-.5)*2*Math.PI;
+   const x=l+r-1+scale*(r-l)*Math.sin(a),z=depth*(.5-(near+far)/2+scale*(far-near)*.5*Math.cos(a));
+   positions.push(x,(.5-t)*height,z);
+   if(cap)uv.push((Number(row>0)+.002+.996*(x/2+.5))/2,.501+.498*(.5+(row?-1:1)*z/depth));
+   else uv.push(.001+.998*u,.001+.498*t);
+  }
+  return base;
+ }
+ for(let j=0;j<=levels;j++){
+  const start=ring(j,false,1);
+  if(j)for(let i=0;i<segments;i++){const k=start+i,b=k-segments-1;indices.push(b,k,b+1,b+1,k,k+1)}
+ }
+ for(const j of [0,levels]){
+  const rim=ring(j,true,1),center=ring(j,true,0);
+  for(let i=0;i<segments;i++)indices.push(...(j?[center,rim+i+1,rim+i]:[center,rim+i,rim+i+1]));
+ }
+ return {positions,uv,indices};
+}
+const shapeChoice=document.createElement('select');
+for(const [value,label] of [['round','둥근 용기 · 유리 광택'],['contour','자유 형태 · 사진 윤곽']])shapeChoice.add(new Option(label,value));
+const shapeLabel=document.createElement('label');shapeLabel.className='field';shapeLabel.append('생성 형태',shapeChoice);
+$('fourInputs').after(shapeLabel);
 let lastFourModel=null;
 $('fourBuild').onclick=()=>{
  const status=$('fourStatus');
@@ -133,7 +189,7 @@ $('fourBuild').onclick=()=>{
   if(slot<0&&!pristine&&scene.objects.length>=8)throw Error('먼저 오브제 하나를 삭제해 주세요.');
   const profiles=views.map(profile),atlas=cv(960,960),g=atlas.getContext('2d');
   profiles.forEach((view,i)=>g.drawImage(view.crop,i%2*480,(i>>1)*480));
-  const model={name:$('fourInputs').querySelector('input').files[0].name.replace(/\.[^.]*$/,''),mesh:visualHull(profiles),photo:atlas.toDataURL('image/png'),inner:0,mat:0,angle:0,thickness:1,size:.83,x:0,y:0,z:0};
+  const model={name:$('fourInputs').querySelector('input').files[0].name.replace(/\.[^.]*$/,''),mesh:shapeChoice.value==='round'?roundedScan(profiles,atlas):visualHull(profiles),photo:atlas.toDataURL('image/png'),inner:0,mat:shapeChoice.value==='round'?1:0,angle:0,thickness:1,size:.83,x:0,y:0,z:0};
   if(pristine){scene.objects=[];pristine=false}
   selected=slot>=0?slot:scene.objects.length;
   scene.objects[selected]=model;
