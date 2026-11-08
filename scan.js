@@ -5,8 +5,23 @@ const faces=['정면','오른쪽 측면','윗면','바닥면'],views=Array(4).fi
 faces.forEach((name,i)=>{const lab=document.createElement('label'),file=document.createElement('input');lab.className='field';lab.textContent=name;file.type='file';file.accept='image/*';file.style.cssText='width:65%;font-size:11px';lab.append(file);$('fourInputs').append(lab);file.onchange=async()=>{views[i]=null;$('fourBuild').disabled=true;const f=file.files[0];if(!f)return;const url=URL.createObjectURL(f);try{const im=new Image();im.src=url;await im.decode();if(file.files[0]!==f)return;views[i]=im;$('fourStatus').textContent=views.filter(Boolean).length+' / 4장 준비됨'}catch{$('fourStatus').textContent='이미지를 읽지 못했어요.'}finally{URL.revokeObjectURL(url);$('fourBuild').disabled=!views.every(Boolean)}}});
 function profile(im){
  const c=cv(192,192),g=c.getContext('2d');g.drawImage(im,0,0,192,192);const d=g.getImageData(0,0,192,192).data,edge=[];for(let i=0;i<192;i++)edge.push(i,191*192+i,i*192,i*192+191);
- const alpha=edge.filter(i=>d[i*4+3]<50).length>100,bg=[0,1,2].map(k=>edge.map(i=>d[i*4+k]).sort((a,b)=>a-b)[384]);let xmin=192,xmax=-1,ymin=192,ymax=-1;const rows=[],cols=[];
- for(let y=0;y<192;y++)for(let x=0;x<192;x++){const i=(y*192+x)*4;if(d[i+3]<100||(!alpha&&Math.hypot(d[i]-bg[0],d[i+1]-bg[1],d[i+2]-bg[2])<52))continue;xmin=Math.min(xmin,x);xmax=Math.max(xmax,x);ymin=Math.min(ymin,y);ymax=Math.max(ymax,y);(rows[y]??=[]).push(x);(cols[x]??=[]).push(y)}
+ const alpha=edge.filter(i=>d[i*4+3]<50).length>100;
+ let xmin=192,xmax=-1,ymin=192,ymax=-1;
+ const rows=[],cols=[],luma=new Float32Array(192*192);
+ for(let k=0;k<luma.length;k++)luma[k]=.299*d[k*4]+.587*d[k*4+1]+.114*d[k*4+2];
+ for(let y=1;y<191;y++){
+  const points=[];
+  for(let x=1;x<191;x++){
+   const k=y*192+x;
+   const strength=Math.max(Math.abs(luma[k+1]-luma[k-1]),Math.abs(luma[k+192]-luma[k-192]));
+   if(alpha?d[k*4+3]>=128:strength>=24)points.push(x);
+  }
+  if(points.length<4)continue;
+  const left=points[0],right=points.at(-1);
+  if(right-left<3)continue;
+  rows[y]=[left,right];xmin=Math.min(xmin,left);xmax=Math.max(xmax,right);ymin=Math.min(ymin,y);ymax=y;
+  for(let x=left;x<=right;x++)(cols[x]??=[]).push(y);
+ }
  if(xmax-xmin<4||ymax-ymin<4)throw Error('제품 외곽을 찾기 어려워요. 단색 배경에서 다시 찍어 주세요.');
  const w=xmax-xmin+1,h=ymax-ymin+1,crop=cv(480,480);crop.getContext('2d').drawImage(im,xmin/192*im.width,ymin/192*im.height,w/192*im.width,h/192*im.height,0,0,480,480);
  function span(t){const y=Math.round(ymin+t*(h-1));let sum=0,n=0;for(let j=Math.max(ymin,y-2);j<=Math.min(ymax,y+2);j++){const r=rows[j];if(r){sum+=(r.at(-1)-r[0]+1)/w;n++}}return Math.max(.05,sum/(n||1))}
