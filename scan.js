@@ -57,22 +57,48 @@ function visualHull(views){
   }
   cells[k]=points.length;points.push(sum.map((s,b)=>(coord(base[b]+s/hits,b)-.5)*dims[b]));
  }
- function vertex(cell,face){
-  const id=cells[cell],key=id*4+face;
+ function vertex(cell,side){
+  const face=[0,0,1,1,2,3][side];
+  const id=cells[cell],key=id*6+side;
   if(vertices.has(key))return vertices.get(key);
   const p=points[id],u=.5+p[0]/2,t=.5-p[1]/height,s=.5+p[2]/depth;
-  const i=positions.length/3;positions.push(...p);uv.push(((face%2)+.002+.996*(face===1?1-s:u))/2,((face>>1)+.002+.996*(face===2?s:face===3?1-s:t))/2);
+  const i=positions.length/3;positions.push(...p);uv.push(((face%2)+.002+.996*(side===1?1-u:side===2?1-s:side===3?s:u))/2,((face>>1)+.002+.996*(face===2?s:face===3?1-s:t))/2);
   vertices.set(key,i);return i;
  }
+ // Average crossing directions across neighboring surface cells before choosing a camera.
+ // A staircase on an inclined surface represents one slope, not alternating photo planes.
+ const normals=new Float32Array(cells.length*3);
  for(let k=0;k<volume.length;k++)if(cells[k]>=0){
   for(let a=0;a<3;a++){
    if(volume[k]===volume[k+stride[a]])continue;
    const b=stride[(a+1)%3],c=stride[(a+2)%3],quad=[k,k-b,k-b-c,k-c];
    if(quad.some(i=>cells[i]===undefined||cells[i]<0))continue;
    if(!volume[k])quad.reverse();
-   const face=a===0?1:a===2?0:volume[k]?2:3;
-   const [i,j,l,m]=quad.map(q=>vertex(q,face));indices.push(i,j,l,i,l,m);
+   for(const q of quad)normals[q*3+a]+=volume[k]?1:-1;
   }
+ }
+ let field=normals;
+ for(let pass=0;pass<5;pass++){
+  const next=new Float32Array(field.length);
+  for(let k=0;k<cells.length;k++)if(cells[k]>=0){
+   for(let dz=-1;dz<=1;dz++)for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+    const j=k+dx+dy*nx+dz*nx*ny;
+    if(!(cells[j]>=0))continue;
+    for(let a=0;a<3;a++)next[k*3+a]+=field[j*3+a];
+   }
+   const n=Math.hypot(next[k*3],next[k*3+1],next[k*3+2])||1;
+   for(let a=0;a<3;a++)next[k*3+a]/=n;
+  }
+  field=next;
+ }
+ for(let k=0;k<cells.length;k++)if(cells[k]>=0)for(let a=0;a<3;a++){
+  if(volume[k]===volume[k+stride[a]])continue;
+  const b=stride[(a+1)%3],c=stride[(a+2)%3],quad=[k,k-b,k-b-c,k-c];
+  if(quad.some(q=>!(cells[q]>=0)))continue;
+  if(!volume[k])quad.reverse();
+  const [x,y,z]=[0,1,2].map(axis=>quad.reduce((sum,q)=>sum+field[q*3+axis],0));
+  const side=Math.abs(y)>Math.max(Math.abs(x),Math.abs(z))?(y>0?4:5):Math.abs(x)>Math.abs(z)?(x>0?2:3):(z>0?0:1);
+  const [i,j,l,m]=quad.map(q=>vertex(q,side));indices.push(i,j,l,i,l,m);
  }
  if(!indices.length)throw Error('네 방향의 윤곽이 겹치지 않아요. 사진 방향을 확인해 주세요.');
  if(positions.length/3>65535)throw Error('표면이 너무 복잡해요. 배경을 단순하게 정리해 주세요.');
