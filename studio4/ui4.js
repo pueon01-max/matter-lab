@@ -73,6 +73,8 @@ function buildDOM() {
     <div class="range"><label for="segBrush">브러시 크기<output id="segBrushO"></output></label><input type="range" id="segBrush" min=".005" max=".08" step=".001" value=".025"></div>
     <div class="range"><label for="segTol">배경 허용 범위<output id="segTolO"></output></label><input type="range" id="segTol" min=".3" max="2.2" step=".05" value="1"></div>
     ${['t', 'b', 'l', 'r'].map(k => `<div class="range"><label for="segCrop${k}">${{ t: '위 자르기', b: '아래 자르기', l: '왼쪽 자르기', r: '오른쪽 자르기' }[k]}<output id="segCrop${k}O"></output></label><input type="range" id="segCrop${k}" min="0" max=".45" step=".005" value="0"></div>`).join('')}
+    <label class="field">조명 헤일로 제거<select id="segHalo"><option value="auto">자동</option><option value="on">켜기</option><option value="off">끄기</option></select></label>
+    <div class="range"><label for="segHaloS">헤일로 민감도<output id="segHaloSO"></output></label><input type="range" id="segHaloS" min=".5" max="2.5" step=".05" value="1"></div>
     <label class="field">그림자 제거<input type="checkbox" id="segShadow" checked></label>
     <label class="field">바닥 반사 제거<input type="checkbox" id="segRefl" checked></label>
     <div class="seg-row"><button id="segReset" class="add">초기화</button><button id="segApply" class="add primary">적용 후 다시 생성</button></div>
@@ -120,6 +122,7 @@ async function analyseSlot(k) {
     const warn = [];
     if (sl.seg.touches) warn.push('제품이 사진 가장자리에 닿아요');
     if (sl.seg.reflectionCut) warn.push('바닥 반사 제거됨');
+    if (sl.seg.grow) warn.push('조명 헤일로 제거됨');
     if (sl.seg.holes) warn.push(`구멍 ${sl.seg.holes}곳`);
     setSlotStatus(k, sl.seg.touches ? 'warn' : 'ok', warn.length ? warn.join(' · ') : '윤곽 확인됨 ✓');
   } catch (e) { sl.seg = null; setSlotStatus(k, 'error', e.message); }
@@ -210,7 +213,7 @@ function openEditor(k) {
   ed = { k, add: true, opts: JSON.parse(JSON.stringify(sl.opts || {})), rot: sl.rot, flip: sl.flip };
   ed.opts.strokes ||= []; ed.opts.crop ||= { l: 0, t: 0, r: 1, b: 1 };
   $('segTitle').textContent = `${slotLabel(k)} 윤곽 편집`;
-  $('segTol').value = ed.opts.tol ?? 1; $('segShadow').checked = ed.opts.shadow !== false; $('segRefl').checked = ed.opts.reflection !== false;
+  $('segTol').value = ed.opts.tol ?? 1; $('segHalo').value = ed.opts.grow === undefined ? 'auto' : ed.opts.grow ? 'on' : 'off'; $('segHaloS').value = ed.opts.haloSens ?? 1; $('segShadow').checked = ed.opts.shadow !== false; $('segRefl').checked = ed.opts.reflection !== false;
   $('segCropt').value = ed.opts.crop.t; $('segCropb').value = 1 - ed.opts.crop.b; $('segCropl').value = ed.opts.crop.l; $('segCropr').value = 1 - ed.opts.crop.r;
   $('segDialog').showModal(); edRun();
 }
@@ -219,12 +222,12 @@ function edRun() {
   clearTimeout(edTimer);
   edTimer = setTimeout(() => {
     const sl = state.slots[ed.k]; ed.canvas = orient(sl.img, ed.rot, ed.flip);
-    const o = { ...ed.opts, tol: +$('segTol').value, shadow: $('segShadow').checked, reflection: $('segRefl').checked, crop: { t: +$('segCropt').value, b: 1 - $('segCropb').value, l: +$('segCropl').value, r: 1 - $('segCropr').value }, kind: ed.k === 'top' || ed.k === 'bottom' ? 'top' : 'side' };
+    const hv = $('segHalo').value; const o = { ...ed.opts, grow: hv === 'auto' ? undefined : hv === 'on', haloSens: +$('segHaloS').value, tol: +$('segTol').value, shadow: $('segShadow').checked, reflection: $('segRefl').checked, crop: { t: +$('segCropt').value, b: 1 - $('segCropb').value, l: +$('segCropl').value, r: 1 - $('segCropr').value }, kind: ed.k === 'top' || ed.k === 'bottom' ? 'top' : 'side' };
     if (+$('segTol').value === 1 && !ed.opts.tol) delete o.tol;
-    try { ed.seg = segment(ed.canvas, o); $('segInfo').textContent = `윤곽 크기 ${ed.seg.bbox.x1 - ed.seg.bbox.x0}×${ed.seg.bbox.y1 - ed.seg.bbox.y0}px · 구멍 ${ed.seg.holes}곳${ed.seg.reflectionCut ? ' · 바닥 반사 제거' : ''}`; }
+    try { ed.seg = segment(ed.canvas, o); $('segInfo').textContent = `윤곽 크기 ${ed.seg.bbox.x1 - ed.seg.bbox.x0}×${ed.seg.bbox.y1 - ed.seg.bbox.y0}px · 구멍 ${ed.seg.holes}곳${ed.seg.reflectionCut ? ' · 바닥 반사 제거' : ''}${ed.seg.grow ? ' · 조명 헤일로 제거됨' : ''}`; }
     catch (e) { ed.seg = null; $('segInfo').textContent = e.message; }
     ed.lastOpts = o; edDraw();
-    for (const k of ['Brush', 'Tol', 'Cropt', 'Cropb', 'Cropl', 'Cropr']) $('seg' + k + 'O').textContent = (+$('seg' + k).value).toFixed(2);
+    for (const k of ['Brush', 'Tol', 'Cropt', 'Cropb', 'Cropl', 'Cropr', 'HaloS']) $('seg' + k + 'O').textContent = (+$('seg' + k).value).toFixed(2);
   }, 40);
 }
 function edDraw() {
@@ -246,16 +249,16 @@ function wireEditor() {
   c.onpointerdown = e => { down = true; c.setPointerCapture(e.pointerId); edPaint(e); };
   c.onpointermove = e => { if (down) edPaint(e); };
   c.onpointerup = c.onpointercancel = () => down = false;
-  for (const id of ['segTol', 'segCropt', 'segCropb', 'segCropl', 'segCropr', 'segShadow', 'segRefl', 'segBrush']) $(id).oninput = $(id).onchange = edRun;
+  for (const id of ['segHalo', 'segHaloS', 'segTol', 'segCropt', 'segCropb', 'segCropl', 'segCropr', 'segShadow', 'segRefl', 'segBrush']) $(id).oninput = $(id).onchange = edRun;
   $('segAdd').onclick = () => { ed.add = true; $('segAdd').classList.add('on'); $('segErase').classList.remove('on'); };
   $('segErase').onclick = () => { ed.add = false; $('segErase').classList.add('on'); $('segAdd').classList.remove('on'); };
   $('segRot').onclick = () => { ed.rot = (ed.rot + 1) % 4; ed.opts.strokes = []; edRun(); };
   $('segFlip').onclick = () => { ed.flip = !ed.flip; ed.opts.strokes = []; edRun(); };
-  $('segReset').onclick = () => { ed.opts = { strokes: [], crop: { l: 0, t: 0, r: 1, b: 1 } }; ed.rot = 0; ed.flip = false; for (const k of ['t', 'b', 'l', 'r']) $('segCrop' + k).value = 0; $('segTol').value = 1; $('segShadow').checked = $('segRefl').checked = true; edRun(); };
+  $('segReset').onclick = () => { ed.opts = { strokes: [], crop: { l: 0, t: 0, r: 1, b: 1 } }; ed.rot = 0; ed.flip = false; for (const k of ['t', 'b', 'l', 'r']) $('segCrop' + k).value = 0; $('segTol').value = 1; $('segHalo').value = 'auto'; $('segHaloS').value = 1; $('segShadow').checked = $('segRefl').checked = true; edRun(); };
   $('segClose').onclick = () => $('segDialog').close();
   $('segApply').onclick = async () => {
     const sl = state.slots[ed.k]; sl.rot = ed.rot; sl.flip = ed.flip;
-    sl.opts = { strokes: ed.opts.strokes, crop: ed.lastOpts.crop, shadow: ed.lastOpts.shadow, reflection: ed.lastOpts.reflection }; if (ed.lastOpts.tol !== undefined) sl.opts.tol = ed.lastOpts.tol;
+    sl.opts = { strokes: ed.opts.strokes, crop: ed.lastOpts.crop, shadow: ed.lastOpts.shadow, reflection: ed.lastOpts.reflection, haloSens: ed.lastOpts.haloSens }; if (ed.lastOpts.grow !== undefined) sl.opts.grow = ed.lastOpts.grow; if (ed.lastOpts.tol !== undefined) sl.opts.tol = ed.lastOpts.tol;
     $('segDialog').close(); await analyseSlot(ed.k);
     if (SLOTS.filter(s => s.req).every(s => state.slots[s.key].seg)) generate();
   };
