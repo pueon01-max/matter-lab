@@ -28,6 +28,10 @@ function sideFrame(seg, notes, name) {
   if (xr <= xl) { xl = seg.bbox.x0; xr = seg.bbox.x1; }
   let clipped = 0;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if ((x < xl - 1 || x > xr) && mask[y * w + x]) { mask[y * w + x] = 0; clipped++; }
+  // the very bottom can't suddenly flare out past the rows just above (floor reflections / caustics form a fake "foot")
+  { const ref = rows[Math.round(y1 - H * .09)] || rows[Math.round(y1 - H * .12)];
+    if (ref) { const rw = ref[1] - ref[0], lim0 = ref[0] - rw * .02, lim1 = ref[1] + rw * .02;
+      for (let y = Math.round(y1 - H * .08); y <= y1; y++) for (let x = 0; x < w; x++) if ((x < lim0 || x > lim1) && mask[y * w + x]) { mask[y * w + x] = 0; clipped++; } } }
   if (clipped > H * 2) notes.push({ view: name, text: '바닥 그림자로 보이는 옆쪽 꼬리를 잘라냈어요.' });
   return { mask, x0: xl, x1: xr, y0, y1: y1 + 1 };
 }
