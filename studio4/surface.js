@@ -53,8 +53,9 @@ export function photoTextures(views, frames) {
 /* ---------- material suggestion from the photos ---------- */
 export const PRESETS = {
   original: { label: '원본', why: '', p: { roughness: .42, metalness: 0, clearcoat: .25, clearcoatRoughness: .3, transmission: 0, thickness: .3, ior: 1.45, iridescence: 0, envMapIntensity: .8, sheen: 0, keep: .62, depth: 0, rim: .08, logo: 1 } },
-  resin: { label: '투명 레진', why: '', p: { roughness: .18, metalness: 0, clearcoat: 1, clearcoatRoughness: .04, transmission: 0, thickness: .4, ior: 1.5, iridescence: 0, envMapIntensity: 1.3, sheen: 0, keep: .84, depth: .045, rim: .45, logo: 1 } },
-  glass: { label: '글라스', why: '', p: { roughness: .04, metalness: 0, clearcoat: 1, clearcoatRoughness: .02, transmission: .82, thickness: .6, ior: 1.5, iridescence: 0, envMapIntensity: 1.4, sheen: 0, keep: .28, depth: .03, rim: .35, logo: .9 } },
+  resin: { label: '투명 레진', why: '', p: { dispersion: 2, roughness: .14, metalness: 0, clearcoat: 1, clearcoatRoughness: .03, transmission: .18, thickness: .4, ior: 1.5, iridescence: 0, envMapIntensity: 1.3, sheen: 0, keep: .84, depth: .045, rim: .45, logo: 1 } },
+  glass: { label: '글라스', why: '', p: { roughness: .02, metalness: 0, clearcoat: 1, clearcoatRoughness: .02, transmission: .95, thickness: 1, ior: 1.5, dispersion: 4, iridescence: .12, envMapIntensity: 1.4, sheen: 0, keep: .3, depth: .03, rim: .35, logo: .9 } },
+  prism: { label: '프리즘 글라스', why: '', p: { roughness: 0, metalness: 0, clearcoat: 1, clearcoatRoughness: 0, transmission: 1, thickness: 1.5, ior: 1.62, dispersion: 10, iridescence: .55, envMapIntensity: 2.2, sheen: 0, keep: .22, depth: .06, rim: .45, logo: 1, specularIntensity: 1 } },
   jelly: { label: '젤리', why: '', p: { roughness: .26, metalness: 0, clearcoat: .8, clearcoatRoughness: .15, transmission: .55, thickness: 1.1, ior: 1.33, iridescence: 0, envMapIntensity: 1, sheen: .4, keep: .42, depth: .06, rim: .3, logo: .7 } },
   iridescent: { label: '이리데슨트', why: '', p: { roughness: .16, metalness: .1, clearcoat: 1, clearcoatRoughness: .05, transmission: 0, thickness: .3, ior: 1.5, iridescence: 1, envMapIntensity: 1.3, sheen: 0, keep: .45, depth: .02, rim: .3, logo: 1 } },
   chrome: { label: '리퀴드 크롬', why: '', p: { roughness: .05, metalness: 1, clearcoat: .6, clearcoatRoughness: .05, transmission: 0, thickness: .3, ior: 1.5, iridescence: 0, envMapIntensity: 1.6, sheen: 0, keep: .1, depth: 0, rim: .15, logo: .6 } },
@@ -68,7 +69,7 @@ export function suggestMaterial(tex) {
   // dark ground with bright detail and specular glints → a resin / glass layer over printed content
   if (lum < .32 && con > .12) return { key: 'resin', why: '어두운 바탕 위의 밝은 무늬와 광택 하이라이트가 보여요 → 투명 레진 층 아래 내용물이 잠긴 표현', depth: Math.min(.07, .02 + con * .15) };
   // clear glass / resin: many neutral glints plus strong contrast (light bending through a transparent body)
-  if (hi > .015 && con > .14 && sat < .35) return { key: 'resin', why: '밝은 하이라이트와 굴절 대비가 많아요 → 투명한 유리·레진 층(내부가 비쳐 보이는 표현)', depth: Math.min(.06, .02 + con * .12) };
+  if (hi > .015 && con > .14 && sat < .35) return { key: 'resin', why: '밝은 하이라이트와 굴절 대비가 많아요 → 투명한 유리·레진 층(내부가 비쳐 보이는 표현). 더 강한 그래픽은 재질 \'프리즘 글라스\' + 룩 \'다크 쇼케이스\'를 추천해요', depth: Math.min(.06, .02 + con * .12) };
   if (sat < .12 && con > .2 && hi > .02) return { key: 'chrome', why: '채도가 낮고 반사 대비가 강해요 → 금속성 표면', depth: 0 };
   if (sat > .35 && lum > .45 && hi > .01) return { key: 'jelly', why: '밝고 채도 높은 색에 하이라이트가 있어요 → 반투명 젤리', depth: .05 };
   if (hi < .004 && con < .12) return { key: 'clay', why: '하이라이트가 거의 없고 대비가 부드러워요 → 무광 표면', depth: 0 };

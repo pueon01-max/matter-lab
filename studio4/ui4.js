@@ -2,6 +2,7 @@
 import { orient, segment, outline } from './segment.js';
 import { reconstruct } from './recon.js';
 import { photoTextures, suggestMaterial, PRESETS } from './surface.js';
+import { LOOKS, ENVS } from './look.js';
 import { ObjectViewer } from './viewer.js';
 
 const $ = id => document.getElementById(id);
@@ -50,7 +51,15 @@ function buildDOM() {
       <p class="obj-suggest" id="objSuggest"></p>
       <label class="field">재질<select id="objMat">${Object.entries(PRESETS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select></label>
       <div id="objRanges"></div>
-      <label class="field">배경색<input type="color" id="objBg" value="#14161b"></label>
+    </section>
+    <section><div class="sectionheading"><h3>그래픽 룩</h3><small>LIGHT · POST</small></div>
+      <label class="field">룩 프리셋<select id="lookSel">${Object.entries(LOOKS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select></label>
+      <label class="field">조명 (HDRI)<select id="lookEnv">${Object.entries(ENVS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+      <label class="field">바닥<select id="lookFloor"><option value="none">없음</option><option value="shadow">부드러운 그림자</option><option value="reflect">반사 바닥</option></select></label>
+      <label class="field">배경 위<input type="color" id="lookBg0"></label>
+      <label class="field">배경 아래<input type="color" id="lookBg1"></label>
+      <label class="field">HDRI를 배경으로<input type="checkbox" id="lookShowEnv"></label>
+      <div id="lookRanges"></div>
     </section>
     <section><div class="sectionheading"><h3>웹 인터랙션 · 내보내기</h3><small>EXPORT</small></div>
       <label class="field">둥둥 떠 있기<input type="checkbox" id="fxFloat" checked></label>
@@ -272,7 +281,7 @@ function wireExports() {
   const run = async (label, fn) => { $('expStatus').textContent = `${label} 만드는 중…`; try { await fn(); $('expStatus').textContent = `${label} 다운로드 완료 ✓`; } catch (e) { console.error(e); $('expStatus').textContent = `${label} 실패 — ${e.message}`; } };
   $('expGLB').onclick = () => run('GLB', async () => { const { exportGLB } = await import('./export4.js'); download(await exportGLB(state.viewer.renderer, state.viewer.active), safeName() + '.glb'); });
   $('expHTML').onclick = () => run('HTML', async () => { const { exportHTML } = await import('./export4.js'); download(await exportHTML(state.viewer, state.viewer.active, fx()), safeName() + '.html'); });
-  $('expR3F').onclick = () => run('R3F 코드 + GLB', async () => { const { exportR3F, exportGLB } = await import('./export4.js'); const o = state.viewer.active; o.viewerBg = state.viewer.bg.getHexString(); download(new Blob([exportR3F(o, fx())], { type: 'text/plain' }), 'MatterScene.jsx'); download(await exportGLB(state.viewer.renderer, o), 'model.glb'); });
+  $('expR3F').onclick = () => run('R3F 코드 + GLB', async () => { const { exportR3F, exportGLB } = await import('./export4.js'); const o = state.viewer.active; o.viewerBg = state.viewer.bg.getHexString(); o.look = state.viewer.lookParams; download(new Blob([exportR3F(o, fx())], { type: 'text/plain' }), 'MatterScene.jsx'); download(await exportGLB(state.viewer.renderer, o), 'model.glb'); });
   for (const id of ['fxFloat', 'fxParallax', 'fxSpin']) $(id).onchange = () => { state.viewer.float = $('fxFloat').checked; };
 }
 
@@ -303,6 +312,28 @@ async function loadSample(name) {
   await generate();
 }
 
+/* ---------------- graphic look ---------------- */
+const LOOK_RANGES = [['envIntensity', '조명 세기', 0, 3, .01], ['envRot', '조명 회전', 0, 6.28, .01], ['exposure', '노출', .4, 2, .01], ['bloom', '블룸 (빛 번짐)', 0, 1.5, .01], ['bloomThreshold', '블룸 기준 밝기', 0, 1.2, .01], ['ca', '색수차', 0, 1.5, .01], ['grain', '그레인', 0, .2, .001], ['vignette', '비네팅', 0, 1, .01]];
+function syncLookUI() {
+  const p = state.viewer.lookParams; $('lookSel').value = state.viewer.lookKey; $('lookEnv').value = p.env; $('lookFloor').value = p.floor; $('lookBg0').value = p.bg[0]; $('lookBg1').value = p.bg[1]; $('lookShowEnv').checked = !!p.showEnv;
+  const box = $('lookRanges'); box.replaceChildren();
+  for (const [k, l, mn, mx, st] of LOOK_RANGES) {
+    const row = document.createElement('div'); row.className = 'range'; const id = 'lookR-' + k;
+    row.innerHTML = `<label for="${id}">${l}<output>${(+p[k] || 0).toFixed(2)}</output></label><input type="range" id="${id}" min="${mn}" max="${mx}" step="${st}" value="${p[k] ?? 0}">`;
+    const inp = row.querySelector('input'), out = row.querySelector('output');
+    inp.oninput = () => { state.viewer.setLookParams({ [k]: +inp.value }); out.textContent = (+inp.value).toFixed(2); };
+    box.append(row);
+  }
+}
+function wireLook() {
+  $('lookSel').onchange = async e => { await state.viewer.setLook(e.target.value); syncLookUI(); };
+  $('lookEnv').onchange = e => state.viewer.setLookParams({ env: e.target.value });
+  $('lookFloor').onchange = e => state.viewer.setLookParams({ floor: e.target.value });
+  $('lookBg0').oninput = $('lookBg1').oninput = () => state.viewer.setLookParams({ bg: [$('lookBg0').value, $('lookBg1').value] });
+  $('lookShowEnv').onchange = e => state.viewer.setLookParams({ showEnv: e.target.checked });
+  state.viewer.lookReady.then(syncLookUI);
+}
+
 /* ---------------- init ---------------- */
 export function init() {
   buildDOM(); buildSlots(); wireEditor(); wireExports();
@@ -313,7 +344,7 @@ export function init() {
   $('objSide').onchange = e => { state.sideDir = e.target.value; SLOTS[1].hint = e.target.value === 'right' ? '오른쪽 옆면' : '왼쪽 옆면'; document.querySelector('#objInputs .obj-file:nth-child(2) small').textContent = SLOTS[1].hint; };
   $('objMat').onchange = e => { state.viewer.applyPreset(e.target.value); syncMaterialUI(); };
   $('objEst').onchange = e => state.viewer.showEstimated(e.target.checked);
-  $('objBg').oninput = e => state.viewer.setBackground(e.target.value);
+  wireLook();
   $('objFull').onclick = () => document.fullscreenElement ? document.exitFullscreen() : $('objView').requestFullscreen();
   $('objSample').onchange = e => { if (e.target.value) loadSample(e.target.value); };
   wireTabs();

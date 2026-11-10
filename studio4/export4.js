@@ -68,7 +68,7 @@ export function bakeTexture(renderer, obj, size = 2048) {
 }
 
 function exportMaterial(obj, map) {
-  const q = obj.params || {}, m = new THREE.MeshPhysicalMaterial({ map, roughness: q.roughness ?? .4, metalness: q.metalness ?? 0, clearcoat: q.clearcoat ?? 0, clearcoatRoughness: q.clearcoatRoughness ?? .2, transmission: q.transmission ?? 0, thickness: q.thickness ?? 0, ior: q.ior ?? 1.5, iridescence: q.iridescence ?? 0, sheen: q.sheen ?? 0, envMapIntensity: q.envMapIntensity ?? 1 });
+  const q = obj.params || {}, m = new THREE.MeshPhysicalMaterial({ map, dispersion: q.dispersion || 0, roughness: q.roughness ?? .4, metalness: q.metalness ?? 0, clearcoat: q.clearcoat ?? 0, clearcoatRoughness: q.clearcoatRoughness ?? .2, transmission: q.transmission ?? 0, thickness: q.thickness ?? 0, ior: q.ior ?? 1.5, iridescence: q.iridescence ?? 0, sheen: q.sheen ?? 0, envMapIntensity: q.envMapIntensity ?? 1 });
   // keep the photo's own light & dark: a share of the texture is emitted (unaffected by scene lighting), like the preview
   if ((q.keep ?? 0) > 0) { m.emissiveMap = map; m.emissive = new THREE.Color(q.keep, q.keep, q.keep); }
   m.name = 'MatterLab_' + (q.preset || 'original');
@@ -90,14 +90,15 @@ const b64 = arr => { const u8 = new Uint8Array(arr.buffer, arr.byteOffset, arr.b
 
 export async function exportHTML(viewer, obj, fx) {
   const surfaceSrc = await (await fetch(new URL('./surface.js', import.meta.url))).text();
+  // the look module, with the HDRI folder pinned to an absolute URL (the export runs from a blob / another site)
+  const lookSrc = (await (await fetch(new URL('./look.js', import.meta.url))).text()).replace("new URL('./env/', import.meta.url).href", JSON.stringify(new URL('./env/', import.meta.url).href));
   const views = {};
   for (const n of Object.keys(obj.tex)) views[n] = { tex: obj.tex[n].tex.toDataURL('image/jpeg', .9), detail: obj.tex[n].detail.toDataURL('image/jpeg', .85), depth: b64(obj.model.depth[n].data), R: obj.model.depth[n].R, stats: obj.tex[n].stats };
   const m = obj.model.mesh, big = m.positions.length / 3 > 65535;
-  const data = { dims: obj.model.dims, sideDir: obj.model.sideDir, cell: obj.model.cell, pos: b64(m.positions), nor: b64(m.normals), idx: b64(big ? m.indices : Uint16Array.from(m.indices)), big, views, params: obj.params, scale: obj.mesh.scale.x, bg: '#' + viewer.bg.getHexString(), fx };
+  const data = { dims: obj.model.dims, sideDir: obj.model.sideDir, cell: obj.model.cell, pos: b64(m.positions), nor: b64(m.normals), idx: b64(big ? m.indices : Uint16Array.from(m.indices)), big, views, params: obj.params, scale: obj.mesh.scale.x, bg: '#' + viewer.bg.getHexString(), look: viewer.lookParams, fx };
   const runtime = `
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 const S = await import(URL.createObjectURL(new Blob([document.getElementById('surface').textContent], { type: 'text/javascript' })));
 const D = JSON.parse(document.getElementById('data').textContent);
 const dec = (s, T) => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new T(u.buffer); };
@@ -105,28 +106,32 @@ const img = src => new Promise(r => { const i = new Image(); i.onload = () => { 
 const tex = {}, depth = {};
 for (const n in D.views) { const v = D.views[n]; tex[n] = { tex: await img(v.tex), detail: await img(v.detail), stats: v.stats }; depth[n] = { data: dec(v.depth, Float32Array), R: v.R }; }
 const model = { dims: D.dims, sideDir: D.sideDir, cell: D.cell, depth };
-const r = new THREE.WebGLRenderer({ antialias: true }); r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.toneMapping = THREE.ACESFilmicToneMapping; document.body.append(r.domElement);
-const scene = new THREE.Scene(); scene.background = new THREE.Color(D.bg); scene.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), .03).texture;
-const k1 = new THREE.DirectionalLight(0xffffff, 1.4); k1.position.set(-3, 4, 5); scene.add(k1); const k2 = new THREE.DirectionalLight(0xbfd4ff, 1.1); k2.position.set(4, 2, -4); scene.add(k2); scene.add(new THREE.HemisphereLight(0xffffff, 0x223, .35));
+const L = await import(URL.createObjectURL(new Blob([document.getElementById('look').textContent], { type: 'text/javascript' })));
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.outputColorSpace = THREE.SRGBColorSpace; document.body.append(r.domElement);
+const scene = new THREE.Scene();
+const k1 = new THREE.DirectionalLight(0xffffff, .9); k1.position.set(-3, 4, 5); scene.add(k1); const k2 = new THREE.DirectionalLight(0xcfe0ff, 1.2); k2.position.set(4, 2, -4); scene.add(k2);
 const cam = new THREE.PerspectiveCamera(30, 1, .05, 100); cam.position.set(0, .4, 6.2);
+const look = new L.Look(r, scene, cam); await look.set(D.look || L.LOOKS.studio);
 const ctl = new OrbitControls(cam, r.domElement); ctl.enableDamping = true; ctl.enablePan = false; ctl.enableZoom = !!D.fx.zoom;
 const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(dec(D.pos, Float32Array), 3)); g.setAttribute('normal', new THREE.BufferAttribute(dec(D.nor, Float32Array), 3)); g.setIndex(new THREE.BufferAttribute(dec(D.idx, D.big ? Uint32Array : Uint16Array), 1));
 const U = S.makeUniforms(THREE, model, tex), q = D.params || {};
 const extra = { uKeep: { value: q.keep ?? .6 }, uRim: { value: q.rim ?? .1 }, uRimColor: { value: new THREE.Color(0xdfe8ff) } };
 U.uDepthAmt.value = q.depth ?? 0; U.uLogo.value = q.logo ?? 1;
-const mat = new THREE.MeshPhysicalMaterial({ roughness: q.roughness, metalness: q.metalness, clearcoat: q.clearcoat, clearcoatRoughness: q.clearcoatRoughness, transmission: q.transmission, thickness: q.thickness, ior: q.ior, iridescence: q.iridescence, iridescenceThicknessRange: [180, 520], sheen: q.sheen, envMapIntensity: q.envMapIntensity });
+const mat = new THREE.MeshPhysicalMaterial({ roughness: q.roughness, metalness: q.metalness, clearcoat: q.clearcoat, clearcoatRoughness: q.clearcoatRoughness, transmission: q.transmission, thickness: q.thickness, ior: q.ior, iridescence: q.iridescence, iridescenceIOR: 1.3, iridescenceThicknessRange: [180, 520], sheen: q.sheen, sheenColor: new THREE.Color(0xffffff), envMapIntensity: q.envMapIntensity, dispersion: q.dispersion || 0, specularIntensity: q.specularIntensity ?? 1 });
 S.patchMaterial(mat, U, extra);
-const mesh = new THREE.Mesh(g, mat); mesh.scale.setScalar(D.scale); const holder = new THREE.Group(); holder.add(mesh); scene.add(holder);
+const mesh = new THREE.Mesh(g, mat); mesh.castShadow = true; mesh.scale.setScalar(D.scale); const holder = new THREE.Group(); holder.add(mesh); scene.add(holder);
+g.computeBoundingBox(); look.setFloor(g.boundingBox.min.y * D.scale - .015);
 let mx = 0, my = 0; addEventListener('pointermove', e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
-const size = () => { r.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }; addEventListener('resize', size); size();
+const size = () => { r.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); look.resize(innerWidth, innerHeight); }; addEventListener('resize', size); size();
 const clock = new THREE.Clock();
 r.setAnimationLoop(() => { const t = clock.getElapsedTime(); if (D.fx.float) mesh.position.y = Math.sin(t * 1.1) * .04; if (D.fx.parallax) { holder.rotation.y += (mx * .5 - holder.rotation.y) * .06; holder.rotation.x += (my * .3 - holder.rotation.x) * .06; } if (D.fx.spin) mesh.rotation.y = t * .35;
-  U.uCamObj.value.copy(mesh.worldToLocal(cam.position.clone())); ctl.update(); r.render(scene, cam); });
+  U.uCamObj.value.copy(mesh.worldToLocal(cam.position.clone())); ctl.update(); look.render(.016, t); });
 `;
   const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${(obj.name || 'Matter Lab object').replace(/</g, '')}</title>
 <style>html,body{margin:0;height:100%;overflow:hidden;background:${data.bg}}canvas{display:block;touch-action:none}</style>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}<\/script></head><body>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}<\/script></head><body>
 <script id="surface" type="text/plain">${surfaceSrc.replace(/<\/script/gi, '<\\/script')}<\/script>
+<script id="look" type="text/plain">${lookSrc.replace(/<\/script/gi, '<\\/script')}<\/script>
 <script id="data" type="application/json">${JSON.stringify(data).replace(/</g, '\\u003c')}<\/script>
 <script type="module">${runtime}<\/script></body></html>`;
   return new Blob([html], { type: 'text/html' });
@@ -135,10 +140,11 @@ r.setAnimationLoop(() => { const t = clock.getElapsedTime(); if (D.fx.float) mes
 export function exportR3F(obj, fx) {
   const q = obj.params || {}, f = n => +(+n || 0).toFixed(3);
   return `// Matter Lab → React Three Fiber
-// npm i three @react-three/fiber @react-three/drei
+// npm i three @react-three/fiber @react-three/drei @react-three/postprocessing
 // Put the downloaded "model.glb" in /public. The photo texture and material are inside the GLB.
 import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, Environment, Float, useGLTF } from '@react-three/drei'
+import { OrbitControls, Environment, Lightformer, Float, useGLTF, ContactShadows } from '@react-three/drei'
+import { EffectComposer, Bloom, ChromaticAberration, Noise, Vignette } from '@react-three/postprocessing'
 import { useRef } from 'react'
 import * as THREE from 'three'
 
@@ -160,13 +166,28 @@ function Product(props) {
 
 export default function MatterScene() {
   return (
-    <Canvas camera={{ position: [0, 0.4, 6.2], fov: 30 }} gl={{ toneMapping: THREE.ACESFilmicToneMapping }} style={{ background: '#${obj.viewerBg || '14161b'}' }}>
+    <Canvas camera={{ position: [0, 0.4, 6.2], fov: 30 }} gl={{ toneMapping: THREE.ACESFilmicToneMapping }} shadows style={{ background: 'linear-gradient(${obj.look?.bg?.[0] || '#14161b'}, ${obj.look?.bg?.[1] || '#14161b'})' }}>
       <directionalLight position={[-3, 4, 5]} intensity={1.4} />
       <directionalLight position={[4, 2, -4]} intensity={1.1} color="#bfd4ff" />
       <hemisphereLight args={['#ffffff', '#222233', 0.35]} />
-      <Environment preset="studio" />
+      {/* dark studio with bright strip lights → crisp highlight lines (same idea as Matter Lab's "lightformers") */}
+      <Environment resolution={256}>
+        <Lightformer form="rect" intensity={3.2} position={[0, 6, 0]} rotation-x={Math.PI / 2} scale={[10, 3, 1]} />
+        <Lightformer form="rect" intensity={6} position={[-5, 1, 2]} scale={[1.2, 9, 1]} onUpdate={s => s.lookAt(0, 0, 0)} />
+        <Lightformer form="rect" intensity={5} position={[5, 1, -1]} scale={[1.2, 9, 1]} onUpdate={s => s.lookAt(0, 0, 0)} />
+        <Lightformer form="ring" intensity={2.5} position={[0, 2, -6]} scale={4} />
+        <Lightformer form="rect" color="#9ec2ff" intensity={2.2} position={[-4, 0, -4]} scale={[2, 6, 1]} onUpdate={s => s.lookAt(0, 0, 0)} />
+        <Lightformer form="rect" color="#ffb6d9" intensity={1.8} position={[4, -1, 4]} scale={[2, 6, 1]} onUpdate={s => s.lookAt(0, 0, 0)} />
+      </Environment>
+      <ContactShadows position={[0, -1.2, 0]} opacity={0.3} blur={2.5} scale={8} />
       ${fx.float ? '<Float speed={1.1} rotationIntensity={0} floatIntensity={0.4}>' : ''}<Product />${fx.float ? '</Float>' : ''}
       <OrbitControls enablePan={false} enableZoom={${!!fx.zoom}} enableDamping />
+      <EffectComposer multisampling={4}>
+        <Bloom intensity={${f(obj.look?.bloom ?? .3)}} luminanceThreshold={${f(obj.look?.bloomThreshold ?? .9)}} mipmapBlur />
+        <ChromaticAberration offset={[${f((obj.look?.ca ?? .2) * .002)}, ${f((obj.look?.ca ?? .2) * .002)}]} radialModulation modulationOffset={0.3} />
+        <Noise opacity={${f(obj.look?.grain ?? .03)}} />
+        <Vignette darkness={${f(obj.look?.vignette ?? .2)}} offset={0.3} />
+      </EffectComposer>
     </Canvas>
   )
 }
