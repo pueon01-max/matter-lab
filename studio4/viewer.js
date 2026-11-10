@@ -38,6 +38,16 @@ export class ObjectViewer {
     let low = 1e9; for (const o of this.objects) { const bb = o.mesh.geometry.boundingBox; low = Math.min(low, o.base.y + bb.min.y * o.mesh.scale.y); }
     this.look.setFloor(low < 1e8 ? low - .015 : -1.2);
     this.look.render(this.clock.getDelta ? .016 : .016, t);
+    if (this.objects.length && !this.progChecked && ++this.progFrames > 2) this.checkPrograms();
+  }
+  /** a shader this GPU can't link draws nothing (only the shadow shows) — find it and step down to a lighter material */
+  checkPrograms() {
+    this.progChecked = true; const gl = this.renderer.getContext();
+    const bad = this.renderer.info.programs.filter(p => !gl.getProgramParameter(p.program, gl.LINK_STATUS));
+    if (!bad.length) return;
+    console.warn('Matter Lab: shader failed on this GPU —', bad.map(p => gl.getProgramInfoLog(p.program)).join(' | '));
+    for (const o of this.objects) { Object.assign(o.material, { transmission: 0, iridescence: 0, dispersion: 0, sheen: 0, clearcoat: Math.min(o.material.clearcoat, 1) }); o.material.needsUpdate = true; }
+    this.lite = true; this.onFallback?.('shader');
   }
   async setLook(key, overrides = {}) { this.lookKey = key; const p = { ...LOOKS[key], ...overrides }; this.lookParams = p; this.bg.set(p.bg[1]); await this.look.set(p); }
   async setLookParams(p) { Object.assign(this.lookParams, p); if (p.bg) this.bg.set(p.bg[1]); await this.look.set(p); }
@@ -59,6 +69,7 @@ export class ObjectViewer {
   }
   /** replace the working object (default) or add another one to the space */
   show(obj, { add = false } = {}) {
+    this.progChecked = false; this.progFrames = 0;
     if (!add && this.active) { this.group.remove(this.active.mesh); this.dispose(this.active); this.objects = this.objects.filter(o => o !== this.active); }
     if (add) { const n = this.objects.length; obj.base.set(((n % 3) - 1) * 2.6, 0, -Math.floor(n / 3) * 2.4); }
     obj.mesh.position.copy(obj.base); this.group.add(obj.mesh); this.objects.push(obj); this.active = obj;
@@ -77,7 +88,8 @@ export class ObjectViewer {
     m.sheenColor = new THREE.Color(0xffffff); m.iridescenceThicknessRange = [180, 520]; m.iridescenceIOR = 1.3;
     if (q.attenuation) { m.attenuationColor = new THREE.Color(q.attenuation); m.attenuationDistance = q.attenuationDistance ?? 1.5; }
     o.uniforms.uKeep.value = q.keep ?? .6; o.uniforms.uDepthAmt.value = q.depth ?? 0; o.uniforms.uRim.value = q.rim ?? .1; o.uniforms.uLogo.value = q.logo ?? 1;
-    m.needsUpdate = true;
+    if (this.lite) { m.transmission = 0; m.iridescence = 0; m.dispersion = 0; m.sheen = 0; }
+    m.needsUpdate = true; this.progChecked = false; this.progFrames = 0;
   }
   showEstimated(v) { for (const o of this.objects) o.uniforms.uEstShow.value = v ? 1 : 0; }
   setBackground(hex) { const p = this.lookParams || LOOKS.studio; this.setLookParams({ bg: [p.bg[0], hex] }); }

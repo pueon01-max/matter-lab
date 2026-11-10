@@ -355,7 +355,7 @@ function wireLook() {
 export function init() {
   buildDOM(); buildSlots(); wireEditor(); wireExports();
   state.viewer = new ObjectViewer($('objCanvas'));
-  state.viewer.onFallback = (why) => { $('objBadge').hidden = false; $('objBadge').textContent = why === 'lost' ? '그래픽 장치가 재시작됐어요 · 새로고침해 주세요' : '이 기기에서 후처리가 지원되지 않아 기본 렌더링으로 전환했어요'; };
+  state.viewer.onFallback = (why) => { $('objBadge').hidden = false; $('objBadge').textContent = why === 'lost' ? '그래픽 장치가 재시작됐어요 · 새로고침해 주세요' : why === 'shader' ? '이 그래픽 카드에 맞게 재질을 가볍게 바꿨어요 (투명·무지개 효과 꺼짐)' : '이 기기에서 후처리가 지원되지 않아 기본 렌더링으로 전환했어요'; };
   document.querySelectorAll('.obj-views button').forEach(b => b.onclick = () => state.viewer.setView(b.dataset.view));
   $('objBuild').onclick = () => generate();
   $('objAddSpace').onclick = () => generate({ add: true });

@@ -79,33 +79,36 @@ export function suggestMaterial(tex) {
 /* ---------- GLSL ---------- */
 export const SURFACE_GLSL = /* glsl */`
 uniform vec3 uDims; uniform float uSideDir; uniform float uCell;
-uniform sampler2D tF, tS, tT, tB, tK; uniform sampler2D hF, hS, hT, hB, hK; uniform sampler2D dF, dS, dT, dB, dK;
+// 7 samplers in all (photos + one detail atlas + one depth atlas): many Windows GPUs (ANGLE / D3D11) allow only 16
+// per shader, and the physical material already needs several of its own
+uniform sampler2D tF, tS, tT, tB, tK; uniform sampler2D hA; uniform sampler2D dA;
 uniform float onF, onS, onT, onB, onK; uniform float uSharp; uniform vec3 uCamObj;
 uniform float uDepthAmt, uLogo, uEstShow, uInnerBlur; uniform vec3 uEstColor;
 varying vec3 vOP; varying vec3 vON;
-float mlVis(sampler2D d, vec2 uv, float depth){ if(uv.x<0.||uv.y<0.||uv.x>1.||uv.y>1.) return 0.; float s=texture(d, uv).r; return 1.-smoothstep(uCell*2.5, uCell*5., depth-s); }
-vec3 mlSample(sampler2D t, sampler2D h, vec2 uv, vec2 off){
+vec2 mlTile(vec2 uv, float i){ return vec2((clamp(uv.x,.004,.996)+i)/5., clamp(uv.y,0.,1.)); }
+float mlVis(float i, vec2 uv, float depth){ if(uv.x<0.||uv.y<0.||uv.x>1.||uv.y>1.) return 0.; float s=texture(dA, mlTile(uv,i)).r; return 1.-smoothstep(uCell*2.5, uCell*5., depth-s); }
+vec3 mlSample(sampler2D t, float i, vec2 uv, vec2 off){
   vec3 surf=texture(t, uv).rgb;
   if(uDepthAmt<=0.0001) return surf;
   vec3 inner=texture(t, uv+off, uInnerBlur).rgb;
-  float print=clamp(texture(h, uv).r*uLogo,0.,1.);
+  float print=clamp(texture(hA, mlTile(uv,i)).r*uLogo,0.,1.);
   return mix(inner, surf, print);
 }
 vec4 mlSurface(vec3 p, vec3 n){
   vec3 V=normalize(uCamObj-p); vec3 acc=vec3(0.); float wsum=0.;
   float W=uDims.x, H=uDims.y, D=uDims.z;
   // front
-  if(onF>.5){ vec2 uv=vec2((p.x+W*.5)/W,(H*.5-p.y)/H); float w=pow(max(n.z,0.),uSharp)*mlVis(dF,uv,D*.5-p.z); vec2 off=-vec2(V.x/W,-V.y/H)/max(V.z,.3)*uDepthAmt; acc+=w*mlSample(tF,hF,uv,off); wsum+=w; }
+  if(onF>.5){ vec2 uv=vec2((p.x+W*.5)/W,(H*.5-p.y)/H); float w=pow(max(n.z,0.),uSharp)*mlVis(0.,uv,D*.5-p.z); vec2 off=-vec2(V.x/W,-V.y/H)/max(V.z,.3)*uDepthAmt; acc+=w*mlSample(tF,0.,uv,off); wsum+=w; }
   // side
   if(onS>.5){ float sx=uSideDir; vec2 uv= sx>0. ? vec2((D*.5-p.z)/D,(H*.5-p.y)/H) : vec2((p.z+D*.5)/D,(H*.5-p.y)/H);
-    float dep= sx>0. ? W*.5-p.x : p.x+W*.5; float w=pow(max(n.x*sx,0.),uSharp)*mlVis(dS,uv,dep);
-    vec2 off=-vec2((sx>0.? -V.z: V.z)/D,-V.y/H)/max(V.x*sx,.3)*uDepthAmt; acc+=w*mlSample(tS,hS,uv,off); wsum+=w; }
+    float dep= sx>0. ? W*.5-p.x : p.x+W*.5; float w=pow(max(n.x*sx,0.),uSharp)*mlVis(1.,uv,dep);
+    vec2 off=-vec2((sx>0.? -V.z: V.z)/D,-V.y/H)/max(V.x*sx,.3)*uDepthAmt; acc+=w*mlSample(tS,1.,uv,off); wsum+=w; }
   // top
-  if(onT>.5){ vec2 uv=vec2((p.x+W*.5)/W,(p.z+D*.5)/D); float w=pow(max(n.y,0.),uSharp)*mlVis(dT,uv,H*.5-p.y); vec2 off=-vec2(V.x/W,V.z/D)/max(V.y,.3)*uDepthAmt; acc+=w*mlSample(tT,hT,uv,off); wsum+=w; }
+  if(onT>.5){ vec2 uv=vec2((p.x+W*.5)/W,(p.z+D*.5)/D); float w=pow(max(n.y,0.),uSharp)*mlVis(2.,uv,H*.5-p.y); vec2 off=-vec2(V.x/W,V.z/D)/max(V.y,.3)*uDepthAmt; acc+=w*mlSample(tT,2.,uv,off); wsum+=w; }
   // bottom
-  if(onB>.5){ vec2 uv=vec2((p.x+W*.5)/W,(D*.5-p.z)/D); float w=pow(max(-n.y,0.),uSharp)*mlVis(dB,uv,p.y+H*.5); vec2 off=-vec2(V.x/W,-V.z/D)/max(-V.y,.3)*uDepthAmt; acc+=w*mlSample(tB,hB,uv,off); wsum+=w; }
+  if(onB>.5){ vec2 uv=vec2((p.x+W*.5)/W,(D*.5-p.z)/D); float w=pow(max(-n.y,0.),uSharp)*mlVis(3.,uv,p.y+H*.5); vec2 off=-vec2(V.x/W,-V.z/D)/max(-V.y,.3)*uDepthAmt; acc+=w*mlSample(tB,3.,uv,off); wsum+=w; }
   // back (optional photo)
-  if(onK>.5){ vec2 uv=vec2((W*.5-p.x)/W,(H*.5-p.y)/H); float w=pow(max(-n.z,0.),uSharp)*mlVis(dK,uv,p.z+D*.5); vec2 off=-vec2(-V.x/W,-V.y/H)/max(-V.z,.3)*uDepthAmt; acc+=w*mlSample(tK,hK,uv,off); wsum+=w; }
+  if(onK>.5){ vec2 uv=vec2((W*.5-p.x)/W,(H*.5-p.y)/H); float w=pow(max(-n.z,0.),uSharp)*mlVis(4.,uv,p.z+D*.5); vec2 off=-vec2(-V.x/W,-V.y/H)/max(-V.z,.3)*uDepthAmt; acc+=w*mlSample(tK,4.,uv,off); wsum+=w; }
   // estimate for faces no photo saw: a heavily blurred, low-detail version of the nearest photo's colours
   vec3 est=mix(uEstColor, texture(tF, vec2(.5+.35*sign(p.x)*min(abs(p.x)/W*2.,1.), (H*.5-p.y)/H), 7.).rgb, .3);
   float seen=clamp(wsum*3.,0.,1.);
@@ -125,17 +128,25 @@ export function makeUniforms(THREE, model, tex) {
     uEstColor: { value: (() => { const c = [0, 0, 0]; let n = 0; for (const v of ['side', 'front', 'back']) if (tex[v]) { const w = v === 'side' ? 2 : 1; tex[v].stats.color.forEach((x, i) => c[i] += x * w); n += w; } return new THREE.Color().setRGB(c[0] / n, c[1] / n, c[2] / n, THREE.SRGBColorSpace); })() },
     uSharp: { value: 4 }, uCamObj: { value: new THREE.Vector3(0, 0, 5) }, uDepthAmt: { value: 0 }, uLogo: { value: 1 }, uEstShow: { value: 0 }, uInnerBlur: { value: 1.2 },
   };
-  const key = { front: 'F', side: 'S', top: 'T', bottom: 'B', back: 'K' };
+  const key = { front: 'F', side: 'S', top: 'T', bottom: 'B', back: 'K' }, slot = { front: 0, side: 1, top: 2, bottom: 3, back: 4 };
+  // detail maps → one 5-tile atlas; depth maps → one 5-tile float atlas
+  const TS = 512, hc = document.createElement('canvas'); hc.width = TS * 5; hc.height = TS;
+  const hx = hc.getContext('2d'); hx.fillStyle = '#000'; hx.fillRect(0, 0, hc.width, hc.height);
+  const R = Math.max(1, ...VIEW_ORDER.filter(n => model.depth?.[n]).map(n => model.depth[n].R)), dd = new Float32Array(R * 5 * R).fill(1e3);
   for (const n of VIEW_ORDER) {
-    const k = key[n], has = !!tex[n];
-    let t = blank, h = blank, d = blankD;
+    const k = key[n], has = !!tex[n], i = slot[n];
+    let t = blank;
     if (has) {
       t = new THREE.CanvasTexture(tex[n].tex); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.anisotropy = 8; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-      h = new THREE.CanvasTexture(tex[n].detail); h.flipY = false;
-      const dm = model.depth[n]; d = new THREE.DataTexture(dm.data, dm.R, dm.R, THREE.RedFormat, THREE.FloatType); d.flipY = false; d.needsUpdate = true; d.magFilter = d.minFilter = THREE.NearestFilter;
+      hx.drawImage(tex[n].detail, i * TS, 0, TS, TS);
+      const dm = model.depth[n];
+      for (let y = 0; y < R; y++) for (let x = 0; x < R; x++) dd[y * R * 5 + i * R + x] = dm.data[Math.min(dm.R - 1, (y * dm.R / R) | 0) * dm.R + Math.min(dm.R - 1, (x * dm.R / R) | 0)];
     }
-    U['t' + k] = { value: t }; U['h' + k] = { value: h }; U['d' + k] = { value: d }; U['on' + k] = { value: has ? 1 : 0 };
+    U['t' + k] = { value: t }; U['on' + k] = { value: has ? 1 : 0 };
   }
+  const hA = new THREE.CanvasTexture(hc); hA.flipY = false; hA.wrapS = hA.wrapT = THREE.ClampToEdgeWrapping;
+  const dA = new THREE.DataTexture(dd, R * 5, R, THREE.RedFormat, THREE.FloatType); dA.flipY = false; dA.magFilter = dA.minFilter = THREE.NearestFilter; dA.needsUpdate = true;
+  U.hA = { value: hA }; U.dA = { value: dA };
   return U;
 }
 
