@@ -61,7 +61,7 @@ export function segment(src, o = {}) {
     const useB = !!(b && b.mask.some(v => v) && (!a || (a.touches && !b.touches) || halo || partial));
     o = { ...o, grow: useB, haloInfo: info, keepInside: partial ? a.mask : null };
   }
-  if (o.tol) return { ...segmentOnce(src, o), tolUsed: o.tol, haloInfo: o.haloInfo };
+  if (o.tol) return fillHollow({ ...segmentOnce(src, o), tolUsed: o.tol, haloInfo: o.haloInfo }, o);
   const ladder = [{ tol: 1, edge: 9 }, { tol: .7, edge: 5.5 }, { tol: .5, edge: 3.6 }];
   const area = r => (r.bbox.x1 - r.bbox.x0) * (r.bbox.y1 - r.bbox.y0) / (r.w * r.h);
   const sane = r => r && !(r instanceof Error) && !r.touches && area(r) < .78;
@@ -72,7 +72,79 @@ export function segment(src, o = {}) {
     if (sane(r) && (pick instanceof Error || area(pick) < .025 || area(r) > area(pick) * 1.6)) pick = r;
   }
   if (pick instanceof Error) throw pick;
-  return pick;
+  return fillHollow(pick, o);
+}
+
+/* A very pale product on a pale backdrop (white jar on white paper, clear glass) can be lost to the background:
+   its face looks like a faint shadow, so only a thin piece of its rim survives and the 3D result becomes a flat slab.
+   If the outline found is hollow, look for the closed contour that the photo's own edges draw around it and fill it. */
+function fillHollow(r, o = {}) {
+  if (o.fillHollow === false || o.strokes?.length) return r;
+  const r0 = r;
+  const finish = (out, ex0, ey0, ex1, ey1, extra) => {
+    const soft = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let s2 = 0, c = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; c++; if (xx >= 0 && yy >= 0 && xx < w && yy < h) s2 += out[yy * w + xx]; } soft[y * w + x] = s2 / c; }
+    return { ...r, mask: out, soft, bbox: { x0: ex0, y0: ey0, x1: ex1 + 1, y1: ey1 + 1 }, touches: ex0 <= 1 || ey0 <= 1 || ex1 >= w - 2 || ey1 >= h - 2, ...extra };
+  };
+  // a hard cast shadow the flood couldn't enter may be attached to a hollow outline: look at the outline without it
+  {
+    const { w, h, mask, shadow, grad } = r; let a = 0, sN = 0, sG = 0, cx = 0, cy = 0, sx = 0, sy = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let i = 0; i < mask.length; i++) if (mask[i]) { const x = i % w, y = (i / w) | 0; a++; if (shadow[i]) { sN++; sG += grad[i]; sx += x; sy += y; } else { cx += x; cy += y; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+    const rest = a - sN;
+    if (sN > a * .3 && rest > a * .05 && sG / sN < 2) {
+      const off = Math.hypot(sx / sN - cx / rest, sy / sN - cy / rest) / Math.max(x1 - x0, y1 - y0, 1), fr = rest / ((x1 - x0 + 1) * (y1 - y0 + 1));
+      if (off > .25 && fr < .4) { const m2 = new Uint8Array(mask.length); for (let i = 0; i < mask.length; i++) m2[i] = mask[i] && !shadow[i] ? 1 : 0; r = { ...r, mask: m2, bbox: { x0, y0, x1: x1 + 1, y1: y1 + 1 }, shadowDetached: true }; }
+    }
+  }
+  const { w, h, mask, grad } = r, b = r.bbox, bw = b.x1 - b.x0, bh = b.y1 - b.y0;
+  let area = 0; for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) if (mask[y * w + x]) area++;
+  const fill = area / Math.max(1, bw * bh), hollow = fill <= .4 && !r.holes;
+  const hull = hollow ? hullMask(mask, w, h, b, 2) : null;
+  const mx = Math.round(Math.max(bw, bh) * .12) + 3, X0 = Math.max(0, b.x0 - mx), Y0 = Math.max(0, b.y0 - mx), X1 = Math.min(w, b.x1 + mx), Y1 = Math.min(h, b.y1 + mx);
+  const inBox = (x, y) => x >= X0 && y >= Y0 && x < X1 && y < Y1;
+  for (const [t, rad] of [[4, 1], [2.5, 1], [4, 3], [2.5, 3], [1.6, 1]]) {
+    const edge = new Uint8Array(w * h);
+    for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) { const i = y * w + x; if (grad[i] > t || (hollow && mask[i])) for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) { const xx = x + dx, yy = y + dy; if (inBox(xx, yy)) edge[yy * w + xx] = 1; } }
+    // flood the background in from the border of the search box
+    const seen = new Uint8Array(w * h), q = [];
+    for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) if ((x === X0 || y === Y0 || x === X1 - 1 || y === Y1 - 1) && !edge[y * w + x]) { seen[y * w + x] = 1; q.push(y * w + x); }
+    for (let j = 0; j < q.length; j++) { const i = q[j], x = i % w, y = (i / w) | 0; for (const [xx, yy] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) { if (!inBox(xx, yy)) continue; const n = yy * w + xx; if (!seen[n] && !edge[n]) { seen[n] = 1; q.push(n); } } }
+    const enc = new Uint8Array(w * h); let n2 = 0, ex0 = w, ey0 = h, ex1 = 0, ey1 = 0;
+    for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) { const i = y * w + x; if (!seen[i]) { enc[i] = 1; } }
+    // undo the dilation (only the outer ring of the dilated barrier is extra)
+    const out = new Uint8Array(w * h);
+    for (let y = Y0 + rad; y < Y1 - rad; y++) for (let x = X0 + rad; x < X1 - rad; x++) { const i = y * w + x; if (!enc[i]) continue; let ok = 1; for (let dy = -rad; dy <= rad && ok; dy++) for (let dx = -rad; dx <= rad; dx++) if (!enc[i + dy * w + dx]) { ok = 0; break; } if (ok || (hollow && mask[i])) { out[i] = 1; n2++; if (x < ex0) ex0 = x; if (x > ex1) ex1 = x; if (y < ey0) ey0 = y; if (y > ey1) ey1 = y; } }
+    if (!n2) continue;
+    const solid = n2 / ((ex1 - ex0 + 1) * (ey1 - ey0 + 1));
+    const edgeOfBox = ex0 <= X0 + 1 || ey0 <= Y0 + 1 || ex1 >= X1 - 2 || ey1 >= Y1 - 2;
+    // a hollow outline's own convex hull bounds the product: whatever the closed contour adds beyond it is cast shadow
+    // (only for weak or gap-bridged edges: a strong closed contour is trusted as is)
+    if (hollow && (t < 4 || rad > 1)) { n2 = 0; ex0 = w; ey0 = h; ex1 = 0; ey1 = 0; for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) { const i = y * w + x; if (out[i] && !hull[i]) out[i] = 0; if (out[i]) { n2++; if (x < ex0) ex0 = x; if (x > ex1) ex1 = x; if (y < ey0) ey0 = y; if (y > ey1) ey1 = y; } } }
+    const solid2 = n2 / Math.max(1, (ex1 - ex0 + 1) * (ey1 - ey0 + 1));
+    let use = hollow && n2 > area * 1.5 && solid2 > .55;
+    // the other way round: a faint cast shadow the colour test couldn't tell from a pale product hangs off one
+    // side of a clean closed contour → keep the contour. (Guarded so a label inside a product never wins.)
+    if (!use && !hollow && !edgeOfBox && solid > .5) {
+      let inM = 0, rem = 0, remSh = 0, remG = 0, remL = 0, cx = 0, cy = 0, rx = 0, ry = 0;
+      for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) { const i = y * w + x; if (out[i]) { cx += x; cy += y; if (mask[i]) inM++; } else if (mask[i]) { rem++; rx += x; ry += y; if (r.shadow[i]) remSh++; remG += grad[i]; remL += r.lum[i]; } }
+      if (rem && n2) {
+        const off = Math.hypot(rx / rem - cx / n2, ry / rem - cy / n2) / Math.max(ex1 - ex0, ey1 - ey0);
+        const bgL = .3 * r.bgColor[0] + .59 * r.bgColor[1] + .11 * r.bgColor[2], shadowy = remSh / rem > .6 || (remL / rem < bgL + 2 && remG / rem < .5);
+        const span = Math.min((ex1 - ex0 + 1) / bw, (ey1 - ey0 + 1) / bh);
+        use = inM / n2 > .9 && rem / area > .025 && rem / area < .45 && shadowy && remG / rem < t * .6 && off > .25 && span > .75;
+        if (use) r = { ...r, shadowTrimmed: true };
+      }
+    }
+    if (use) return finish(out, ex0, ey0, ex1, ey1, { filledHollow: hollow });
+  }
+  // outline still open somewhere (a rim that fades into the backdrop): fill between the walls the outline does
+  // show — each row between its outermost pixels, each column likewise, keep what both agree on
+  if (hollow) {
+    const out = new Uint8Array(w * h); let n2 = 0;
+    for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) { const i = y * w + x; if (hull[i] && (mask[i] || (x > b.x0 && y > b.y0 && x < b.x1 - 1 && y < b.y1 - 1))) { out[i] = 1; n2++; } }
+    if (n2 > area * 1.5 && n2 / (bw * bh) > .55) return finish(out, b.x0, b.y0, b.x1 - 1, b.y1 - 1, { filledHollow: true });
+  }
+  return r0;
 }
 
 function segmentOnce(src, o) {
@@ -242,6 +314,24 @@ function segmentOnce(src, o) {
 
   const touches = x0 <= 1 || y0 <= 1 || x1 >= w - 2 || y1 >= h - 2;
   return { w, h, mask, soft, lum, grad, shadow: shadowLike, grow: spot, bbox: { x0, y0, x1: x1 + 1, y1: y1 + 1 }, holes, reflectionCut, touches, scale: k, bgColor: bgAt(.5, .5), threshold: T };
+}
+
+/* filled convex hull of a mask (monotone chain over each row's outermost pixels), grown by `grow` px */
+function hullMask(mask, w, h, b, grow = 0) {
+  const pts = [];
+  for (let y = b.y0; y < b.y1; y++) { let l = -1, r = -1; for (let x = b.x0; x < b.x1; x++) if (mask[y * w + x]) { if (l < 0) l = x; r = x; } if (l >= 0) { pts.push([l, y]); if (r !== l) pts.push([r, y]); } }
+  pts.sort((a, c) => a[0] - c[0] || a[1] - c[1]);
+  const cross = (o, a, c) => (a[0] - o[0]) * (c[1] - o[1]) - (a[1] - o[1]) * (c[0] - o[0]);
+  const lo = [], up = [];
+  for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  const poly = lo.slice(0, -1).concat(up.slice(0, -1)), out = new Uint8Array(w * h);
+  if (poly.length < 3) return out;
+  const E = poly.map((p, i) => { const q = poly[(i + 1) % poly.length], dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy) || 1; return [p[0], p[1], dx / L, dy / L]; });
+  for (let y = Math.max(0, b.y0 - grow); y < Math.min(h, b.y1 + grow); y++) for (let x = Math.max(0, b.x0 - grow); x < Math.min(w, b.x1 + grow); x++) {
+    let ok = true; for (const [px, py, ux, uy] of E) if (ux * (y - py) - uy * (x - px) < -grow - .5) { ok = false; break; } if (ok) out[y * w + x] = 1;
+  }
+  return out;
 }
 
 function cutReflection(mask, d, w, h, bgAt) {

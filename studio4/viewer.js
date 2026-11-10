@@ -12,6 +12,8 @@ export class ObjectViewer {
     this.scene = new THREE.Scene(); this.bg = new THREE.Color('#14161b');
     this.camera = new THREE.PerspectiveCamera(30, 1, .05, 100); this.camera.position.set(0, .4, 6.2);
     this.look = new Look(r, this.scene, this.camera); this.lookReady = this.setLook('studio');
+    this.look.onFallback = () => this.onFallback?.();
+    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.onFallback?.('lost'); });
     this.controls = new OrbitControls(this.camera, canvas); this.controls.enableDamping = true; this.controls.dampingFactor = .08; this.controls.minDistance = 2.2; this.controls.maxDistance = 14; this.controls.enablePan = false;
     // a soft key + cool rim on top of the HDRI so edges always catch a line of light
     this.key = new THREE.DirectionalLight(0xffffff, .9); this.key.position.set(-3, 4, 5); this.scene.add(this.key);
@@ -23,6 +25,9 @@ export class ObjectViewer {
   }
   resize() { const w = this.canvas.clientWidth || 600, h = this.canvas.clientHeight || 400; this.renderer.setSize(w, h, false); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.look?.resize(w, h); }
   tick() {
+    try { this._tick(); } catch (e) { console.error(e); if (!this.look.safe) this.look.fail(e); else throw e; }
+  }
+  _tick() {
     const t = this.clock.getElapsedTime();
     this.controls.update();
     for (const o of this.objects) {

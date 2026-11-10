@@ -73,7 +73,10 @@ export class Look {
     this.pmrem = new THREE.PMREMGenerator(renderer); this.envCache = {};
     this.room = this.pmrem.fromScene(new RoomEnvironment(), .03).texture; scene.environment = this.room;
     const size = renderer.getSize(new THREE.Vector2());
-    this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 }));
+    // some GPUs can't render to half-float / multisampled targets → fall back to 8-bit, no MSAA
+    const ext = renderer.extensions, canHalf = ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float');
+    this.safe = /[?&]safe=1/.test(location.search);
+    this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { type: canHalf ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: canHalf ? 4 : 0 }));
     this.composer.addPass(new RenderPass(scene, camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), .3, .55, .85); this.composer.addPass(this.bloom);
     this.post = new ShaderPass(LookShader); this.composer.addPass(this.post);
@@ -84,7 +87,7 @@ export class Look {
     this.shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.ShadowMaterial({ opacity: .22 })); this.shadowFloor.rotation.x = -Math.PI / 2; this.shadowFloor.receiveShadow = true; scene.add(this.shadowFloor);
     this.mirror = new Reflector(new THREE.CircleGeometry(3.2, 64), { textureWidth: 1024, textureHeight: 1024, color: 0x6c707a, clipBias: .003 }); this.mirror.rotation.x = -Math.PI / 2; scene.add(this.mirror);
     this.fade = new THREE.Mesh(new THREE.CircleGeometry(3.22, 64), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })); this.fade.rotation.x = -Math.PI / 2; scene.add(this.fade);
-    this.p = {}; this.floorY = -1.2;
+    this.p = {}; this.floorY = -1.2; this.frames = 0; this.checked = false;
   }
   async loadEnv(name) {
     if (name === 'room') return this.room;
@@ -102,7 +105,7 @@ export class Look {
     if (q.bg) { if (this.bgTex) this.bgTex.dispose(); this.bgTex = gradientTexture(q.bg[0], q.bg[1]); }
     s.environmentIntensity = q.envIntensity ?? 1; s.environmentRotation = new THREE.Euler(0, q.envRot ?? 0, 0); s.backgroundRotation = new THREE.Euler(0, q.envRot ?? 0, 0);
     this.shadowFloor.visible = q.floor === 'shadow'; this.sun.intensity = q.floor === 'shadow' ? .0001 : 0; this.sun.castShadow = q.floor === 'shadow';
-    this.mirror.visible = this.fade.visible = q.floor === 'reflect';
+    this.mirror.visible = this.fade.visible = q.floor === 'reflect' && !this.safe;
     if (q.bg) { this.fade.material.map?.dispose(); this.fade.material.map = fadeTexture(q.bg[1]); this.fade.material.needsUpdate = true; }
     if (q.env) {
       try { const e = await this.loadEnv(q.env); s.environment = e.pm || e; this.envRaw = e.raw || null; }
@@ -112,5 +115,17 @@ export class Look {
   }
   setFloor(y) { this.floorY = y; this.shadowFloor.position.y = y; this.mirror.position.y = y; this.fade.position.y = y + .002; }
   resize(w, h) { this.composer.setSize(w, h); this.bloom.setSize(w, h); this.post.uniforms.uRes.value.set(w, h); }
-  render(dt, t) { this.post.uniforms.uTime.value = t; this.composer.render(dt); }
+  render(dt, t) {
+    if (this.safe) { this.renderer.render(this.scene, this.camera); return; }
+    this.post.uniforms.uTime.value = t;
+    try { this.composer.render(dt); } catch (e) { this.fail(e); return; }
+    // check once that the post-processing chain actually produced a picture on this GPU
+    if (!this.checked && ++this.frames > 3) {
+      this.checked = true; const gl = this.renderer.getContext(), err = gl.getError();
+      const px = new Uint8Array(4 * 9), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight; let sum = 0;
+      for (let i = 0; i < 9; i++) { const p = new Uint8Array(4); gl.readPixels(Math.floor(w * (.2 + .3 * (i % 3))), Math.floor(h * (.2 + .3 * Math.floor(i / 3))), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p); sum += p[0] + p[1] + p[2]; }
+      if (err !== gl.NO_ERROR || sum === 0) this.fail(new Error('post-processing produced no image (gl error ' + err + ')'));
+    }
+  }
+  fail(e) { console.warn('Matter Lab: switching to safe rendering —', e); this.safe = true; this.mirror.visible = this.fade.visible = false; this.onFallback?.(e); }
 }

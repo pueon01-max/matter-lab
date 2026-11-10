@@ -155,8 +155,8 @@ export async function reconstruct(views, opt = {}) {
     return { g, aspErr, fill, shadow: (() => { const sg = views[n].seg, m = frames[n].mask; let a = 0, s2 = 0; for (let i = 0; i < m.length; i++) if (m[i]) { a++; if (sg.shadow[i]) s2++; } return s2 / Math.max(1, a); })(), coverage: bw * bd / (W * D) };
   };
   const cand = { top: fitted('top'), bottom: fitted('bottom') };
-  const okC = c => c && c.aspErr < .35 && c.fill > .3;
-  const score = c => c.aspErr * 2 + c.shadow + (1 - c.fill) * .3;
+  const okC = c => c && c.aspErr < .35 && c.fill > .45;
+  const score = c => c.aspErr * 2 + c.shadow + (1 - c.fill) * 1.2;
   const iou = (a, b) => { let x = 0, y = 0; for (let i = 0; i < a.length; i++) { const p = a[i] > 0, q2 = b[i] > 0; if (p && q2) x++; if (p || q2) y++; } return y ? x / y : 0; };
   let TT = new Float32Array(nx * nz), clean = null, agreement = 0;
   const usable = ['top', 'bottom'].filter(n => okC(cand[n]));
@@ -279,8 +279,15 @@ export async function reconstruct(views, opt = {}) {
   for (const n of Object.keys(views)) { depth[n] = depthMap(n, dims, sideDir, fieldAt, cell); await yieldUI(); }
 
   /* ---------- analysis ---------- */
+  // a result much thinner than the photos say (a 'slab') means an outline was lost — say which view to check
+  { const P = mesh.positions, mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9]; for (let i = 0; i < P.length; i += 3) for (let a = 0; a < 3; a++) { mn[a] = Math.min(mn[a], P[i + a]); mx[a] = Math.max(mx[a], P[i + a]); }
+    if (!P.length) throw Object.assign(new Error('형태를 만들지 못했어요. 각 사진의 윤곽을 확인해 주세요.'), { stage: 'volume' });
+    const got = [(mx[0] - mn[0]) / W, (mx[1] - mn[1]) / H, (mx[2] - mn[2]) / D];
+    if (got[0] < .6) notes.push({ view: 'front', warn: true, text: `결과의 가로 폭이 정면 사진보다 많이 좁게 나왔어요(${Math.round(got[0] * 100)}%). 윗면·바닥면 윤곽이 제품 전체를 감싸는지 확인해 주세요.` });
+    if (got[2] < .6) notes.push({ view: 'side', warn: true, text: `결과의 두께가 측면 사진보다 많이 얇게 나왔어요(${Math.round(got[2] * 100)}%). 윗면·바닥면 윤곽이 제품 전체를 감싸는지 확인해 주세요.` });
+    if (got[1] < .6) notes.push({ view: 'front', warn: true, text: `결과의 높이가 사진보다 낮게 나왔어요(${Math.round(got[1] * 100)}%). 정면·측면 윤곽을 확인해 주세요.` }); }
   const analysis = analyse({ spans, wScale, TT, nx, nz, tArea, tx0, tx1, tz0, tz1, templateCorners, cell, X, Z, ny, Y, dims, views, notes, sideDir });
-  return { dims, mesh, frames, depth, analysis, sideDir, angular, cell, debug: { TT, nx, nz, wScale, spans, clean, iou: best.v, templateCorners, fittedShape, fit: out_fit } };
+  return { dims, mesh, frames, depth, analysis, sideDir, angular, cell, debug: { cand: Object.fromEntries(Object.entries(cand).map(([k, c]) => [k, c && { aspErr: c.aspErr, fill: c.fill, shadow: c.shadow, coverage: c.coverage }])), TT, nx, nz, wScale, spans, clean, iou: best.v, templateCorners, fittedShape, fit: out_fit } };
 }
 
 /* ---------- surface nets with Taubin smoothing and field-gradient normals ---------- */

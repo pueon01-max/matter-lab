@@ -118,7 +118,7 @@ async function loadSlot(k, src, name) {
   try {
     const img = new Image(); img.decoding = 'async';
     img.src = typeof src === 'string' ? src : URL.createObjectURL(src); await img.decode();
-    Object.assign(sl, { img, rot: 0, flip: false, opts: {}, name });
+    Object.assign(sl, { img, rot: 0, flip: false, userRot: false, opts: {}, name });
     if (k === 'front' && name) state.name = name.replace(/\.[^.]+$/, '').replace(/_front$/, '');
     await analyseSlot(k);
   } catch (e) { setSlotStatus(k, 'error', '사진을 읽지 못했어요 (PNG·JPG·WebP)'); }
@@ -166,9 +166,11 @@ async function generate({ add = false } = {}) {
     const views = {};
     for (const s of SLOTS) { const sl = state.slots[s.key]; if (!sl.img) { if (s.req) throw Object.assign(new Error(`${s.label} 사진이 없어요.`), { stage: 'photos', view: s.key }); continue; } if (!sl.seg) throw Object.assign(new Error(`${s.label} 사진에서 제품을 찾지 못했어요. 사진을 눌러 윤곽을 고쳐 주세요.`), { stage: 'photos', view: s.key }); views[s.key] = { seg: sl.seg, canvas: sl.canvas }; }
     await new Promise(r => setTimeout(r, 30));
+    const autoNotes = await autoRotateTops(views);
     const model = await reconstruct(views, { sideDir: state.sideDir, onStage: (k, t) => stage(k, t) });
     stage('texture', '사진을 표면에 입히는 중');
     await new Promise(r => setTimeout(r, 0));
+    model.analysis.notes.unshift(...autoNotes);
     const tex = photoTextures(views, model.frames);
     if (gen !== state.generation) return;
     const obj = state.viewer.build(model, tex); obj.name = state.name || '새 오브제';
@@ -192,6 +194,21 @@ async function generate({ add = false } = {}) {
   } finally {
     state.busy = false; $('objBusy').hidden = true; $('objView').classList.remove('busy'); updateButtons();
   }
+}
+/* top/bottom shots taken with the product turned 90° are the most common cause of a flat, slab-like
+   result, so if a top/bottom outline fits the front×side footprint far better when turned, turn it. */
+async function autoRotateTops(views) {
+  const asp = b => (b.x1 - b.x0) / Math.max(1, b.y1 - b.y0), notes = [];
+  const A = asp(views.front.seg.bbox) / asp(views.side.seg.bbox);
+  for (const k of ['top', 'bottom']) {
+    const sl = state.slots[k]; if (!views[k] || sl.userRot) continue;
+    const a = asp(views[k].seg.bbox), err = Math.abs(Math.log(a / A)), errT = Math.abs(Math.log(1 / a / A));
+    if (err > .25 && errT < err * .4) {
+      sl.rot = (sl.rot + 1) % 4; await analyseSlot(k);
+      if (sl.seg) { views[k] = { seg: sl.seg, canvas: sl.canvas }; notes.push({ view: k, text: `${slotLabel(k)} 사진이 90° 돌아가 있어서 자동으로 회전했어요. 앞뒤가 바뀌었으면 윤곽 편집에서 ⟳ 두 번 눌러 주세요.` }); }
+    }
+  }
+  return notes;
 }
 function showAnalysis(model, sug) {
   const a = model.analysis;
@@ -266,7 +283,7 @@ function wireEditor() {
   $('segReset').onclick = () => { ed.opts = { strokes: [], crop: { l: 0, t: 0, r: 1, b: 1 } }; ed.rot = 0; ed.flip = false; for (const k of ['t', 'b', 'l', 'r']) $('segCrop' + k).value = 0; $('segTol').value = 1; $('segHalo').value = 'auto'; $('segHaloS').value = 1; $('segShadow').checked = $('segRefl').checked = true; edRun(); };
   $('segClose').onclick = () => $('segDialog').close();
   $('segApply').onclick = async () => {
-    const sl = state.slots[ed.k]; sl.rot = ed.rot; sl.flip = ed.flip;
+    const sl = state.slots[ed.k]; if (sl.rot !== ed.rot) sl.userRot = true; sl.rot = ed.rot; sl.flip = ed.flip;
     sl.opts = { strokes: ed.opts.strokes, crop: ed.lastOpts.crop, shadow: ed.lastOpts.shadow, reflection: ed.lastOpts.reflection, haloSens: ed.lastOpts.haloSens }; if (ed.lastOpts.grow !== undefined) sl.opts.grow = ed.lastOpts.grow; if (ed.lastOpts.tol !== undefined) sl.opts.tol = ed.lastOpts.tol;
     $('segDialog').close(); await analyseSlot(ed.k);
     if (SLOTS.filter(s => s.req).every(s => state.slots[s.key].seg)) generate();
@@ -338,6 +355,7 @@ function wireLook() {
 export function init() {
   buildDOM(); buildSlots(); wireEditor(); wireExports();
   state.viewer = new ObjectViewer($('objCanvas'));
+  state.viewer.onFallback = (why) => { $('objBadge').hidden = false; $('objBadge').textContent = why === 'lost' ? '그래픽 장치가 재시작됐어요 · 새로고침해 주세요' : '이 기기에서 후처리가 지원되지 않아 기본 렌더링으로 전환했어요'; };
   document.querySelectorAll('.obj-views button').forEach(b => b.onclick = () => state.viewer.setView(b.dataset.view));
   $('objBuild').onclick = () => generate();
   $('objAddSpace').onclick = () => generate({ add: true });
