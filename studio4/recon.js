@@ -44,8 +44,10 @@ function trimToAspect(seg, fr, A, notes, name) {
   const colShadow = x => { let s = 0, n = 0; for (let y = fr.y0; y < fr.y1; y++) { const i = y * w + x; if (fr.mask[i]) { n++; if (seg.shadow[i]) s++; } } return n ? s / n : 1; };
   const rowShadow = y => { let s = 0, n = 0; for (let x = fr.x0; x < fr.x1; x++) { const i = y * w + x; if (fr.mask[i]) { n++; if (seg.shadow[i]) s++; } } return n ? s / n : 1; };
   let trimmed = 0;
-  while (bw / bh > A * 1.04 && bw > 8) { if (colShadow(fr.x0) >= colShadow(fr.x1 - 1)) fr.x0++; else fr.x1--; bw--; trimmed++; }
-  while (bw / bh < A / 1.04 && bh > 8) { if (rowShadow(fr.y0) >= rowShadow(fr.y1 - 1)) fr.y0++; else fr.y1--; bh--; trimmed++; }
+  // only shadow is trimmed: a clean outline that merely has a different aspect (a round base under an oval body,
+  // a slightly tilted shot) keeps its shape — the section is rescaled to width × depth later anyway
+  while (bw / bh > A * 1.04 && bw > 8) { const l = colShadow(fr.x0), r = colShadow(fr.x1 - 1); if (Math.max(l, r) < .3) break; if (l >= r) fr.x0++; else fr.x1--; bw--; trimmed++; }
+  while (bw / bh < A / 1.04 && bh > 8) { const t = rowShadow(fr.y0), b = rowShadow(fr.y1 - 1); if (Math.max(t, b) < .3) break; if (t >= b) fr.y0++; else fr.y1--; bh--; trimmed++; }
   if (trimmed) {
     for (let y = 0; y < seg.h; y++) for (let x = 0; x < w; x++) if (x < fr.x0 || x >= fr.x1 || y < fr.y0 || y >= fr.y1) fr.mask[y * w + x] = 0;
     if (trimmed > (bw + bh) * .04) notes.push({ view: name, text: '그림자로 보이는 부분을 다른 사진의 비율에 맞춰 잘라냈어요.' });
@@ -235,7 +237,7 @@ export async function reconstruct(views, opt = {}) {
   let wScale = spans.map(s => {
     if (!s || !templateRound) return 0;
     const kx = (s.xr - s.xl) / tw, kz = (s.zr - s.zl) / td;
-    return 1 - sstep(.12, .25, Math.abs(kx - kz));
+    return 1 - sstep(.22, .38, Math.abs(kx - kz));
   });
   { const sm = new Float32Array(ny); for (let j = 0; j < ny; j++) { let a = 0, n = 0; for (let d = -4; d <= 4; d++) { const jj = j + d; if (jj < 0 || jj >= ny) continue; const g = Math.exp(-d * d / 8); a += wScale[jj] * g; n += g; } sm[j] = a / n; } wScale = sm; }
   await yieldUI();
@@ -250,15 +252,14 @@ export async function reconstruct(views, opt = {}) {
     for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
       let v = Math.min(fx[j * nx + i], sx[j * nz + k], TT[k * nx + i]);
       if (bk) v = Math.min(v, bk[j * nx + i]);
-      if (v > -cell * 3 && ws > .01) {
-        // round products: read the front / side profile along the radial direction (a loft / lathe), so domes,
-        // shoulders and necks are true curved surfaces instead of the "hip roof" two extrusions make
-        const x = X(i), z = Z(k), rn = Math.max(0, 1 - TT[k * nx + i] / Tmax);
-        const ax = x / W, az = z / D, L2 = ax * ax + az * az || 1, cw = ax * ax / L2, sw = az * az / L2;
-        const fr = S.front(...P.front((x >= 0 ? 1 : -1) * rn * W / 2, y, 0)), sd = S.side(...P.side(0, y, (z >= 0 ? 1 : -1) * rn * D / 2));
-        const lathe = cw * fr + sw * sd;
-        // for round products the loft replaces the two straight extrusions (which would leave a flat "roof")
-        v = ws * Math.min(lathe, bk ? bk[j * nx + i] : 1e9) + (1 - ws) * v;
+      if (ws > .01 && s) {
+        // round products: a true loft — the top/bottom outline is scaled at every height to the width the front photo
+        // shows and the depth the side photo shows (and moved with their centres), so bodies, shoulders, necks and
+        // domes come out as smooth curved surfaces instead of the flat faces / terraces two crossed extrusions leave
+        const a = Math.max((s.xr - s.xl) / 2, cell * .5), b = Math.max((s.zr - s.zl) / 2, cell * .5), cx = (s.xl + s.xr) / 2, cz = (s.zl + s.zr) / 2;
+        const ua = a / (tw / 2), ub = b / (td / 2);
+        const loft = TTs(tcx + (X(i) - cx) / ua, tcz + (Z(k) - cz) / ub) * Math.min(ua, ub);
+        v = ws * (bk ? Math.min(loft, bk[j * nx + i]) : loft) + (1 - ws) * v;
       }
       field[(k * ny + j) * nx + i] = v;
     }

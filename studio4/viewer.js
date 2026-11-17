@@ -3,15 +3,16 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { makeUniforms, patchMaterial, PRESETS } from './surface.js';
 import { Look, LOOKS } from './look.js';
+import { detectGPU } from './gpu.js';
 
 export class ObjectViewer {
-  constructor(canvas) {
+  constructor(canvas, gfx) {
     this.canvas = canvas;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
-    r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.outputColorSpace = THREE.SRGBColorSpace;
+    this.gfx = gfx || detectGPU(r); r.setPixelRatio(this.gfx.dpr); r.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene(); this.bg = new THREE.Color('#14161b');
     this.camera = new THREE.PerspectiveCamera(30, 1, .05, 100); this.camera.position.set(0, .4, 6.2);
-    this.look = new Look(r, this.scene, this.camera); this.lookReady = this.setLook('studio');
+    this.look = new Look(r, this.scene, this.camera, this.gfx); this.lookReady = this.setLook('studio');
     this.look.onFallback = () => this.onFallback?.();
     canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.onFallback?.('lost'); });
     this.controls = new OrbitControls(this.camera, canvas); this.controls.enableDamping = true; this.controls.dampingFactor = .08; this.controls.minDistance = 2.2; this.controls.maxDistance = 14; this.controls.enablePan = false;
@@ -59,7 +60,8 @@ export class ObjectViewer {
     g.setAttribute('normal', new THREE.BufferAttribute(model.mesh.normals, 3));
     g.setIndex(new THREE.BufferAttribute(model.mesh.indices, 1));
     g.computeBoundingSphere(); g.computeBoundingBox();
-    const U = makeUniforms(THREE, model, tex);
+    const U = makeUniforms(THREE, model, tex, { tile: this.gfx.tile });
+    for (const k of ['tF', 'tS', 'tT', 'tB', 'tK']) if (U[k].value.isCanvasTexture) U[k].value.anisotropy = this.gfx.aniso;
     const extra = { uKeep: { value: .62 }, uRim: { value: .1 }, uRimColor: { value: new THREE.Color(0xdfe8ff) } };
     const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, side: THREE.FrontSide });
     patchMaterial(mat, U, extra);
@@ -88,6 +90,7 @@ export class ObjectViewer {
     m.sheenColor = new THREE.Color(0xffffff); m.iridescenceThicknessRange = [180, 520]; m.iridescenceIOR = 1.3;
     if (q.attenuation) { m.attenuationColor = new THREE.Color(q.attenuation); m.attenuationDistance = q.attenuationDistance ?? 1.5; }
     o.uniforms.uKeep.value = q.keep ?? .6; o.uniforms.uDepthAmt.value = q.depth ?? 0; o.uniforms.uRim.value = q.rim ?? .1; o.uniforms.uLogo.value = q.logo ?? 1;
+    const fx = this.gfx.micro ? 1 : 0; o.uniforms.uMicro.value = (q.micro ?? 0) * fx; o.uniforms.uEmboss.value = (q.emboss ?? 0) * fx; o.uniforms.uSparkle.value = (q.sparkle ?? 0) * fx; o.uniforms.uFilm.value = q.film ?? 0;
     if (this.lite) { m.transmission = 0; m.iridescence = 0; m.dispersion = 0; m.sheen = 0; }
     m.needsUpdate = true; this.progChecked = false; this.progFrames = 0;
   }

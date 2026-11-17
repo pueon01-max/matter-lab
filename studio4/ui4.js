@@ -167,11 +167,11 @@ async function generate({ add = false } = {}) {
     for (const s of SLOTS) { const sl = state.slots[s.key]; if (!sl.img) { if (s.req) throw Object.assign(new Error(`${s.label} 사진이 없어요.`), { stage: 'photos', view: s.key }); continue; } if (!sl.seg) throw Object.assign(new Error(`${s.label} 사진에서 제품을 찾지 못했어요. 사진을 눌러 윤곽을 고쳐 주세요.`), { stage: 'photos', view: s.key }); views[s.key] = { seg: sl.seg, canvas: sl.canvas }; }
     await new Promise(r => setTimeout(r, 30));
     const autoNotes = await autoRotateTops(views);
-    const model = await reconstruct(views, { sideDir: state.sideDir, onStage: (k, t) => stage(k, t) });
+    const model = await reconstruct(views, { quality: state.viewer.gfx.quality, sideDir: state.sideDir, onStage: (k, t) => stage(k, t) });
     stage('texture', '사진을 표면에 입히는 중');
     await new Promise(r => setTimeout(r, 0));
     model.analysis.notes.unshift(...autoNotes);
-    const tex = photoTextures(views, model.frames);
+    const tex = photoTextures(views, model.frames, state.viewer.gfx.photo);
     if (gen !== state.generation) return;
     const obj = state.viewer.build(model, tex); obj.name = state.name || '새 오브제';
     const sug = suggestMaterial(tex);
@@ -203,7 +203,7 @@ async function autoRotateTops(views) {
   for (const k of ['top', 'bottom']) {
     const sl = state.slots[k]; if (!views[k] || sl.userRot) continue;
     const a = asp(views[k].seg.bbox), err = Math.abs(Math.log(a / A)), errT = Math.abs(Math.log(1 / a / A));
-    if (err > .25 && errT < err * .4) {
+    if (err > .3 && errT < err * .3) {
       sl.rot = (sl.rot + 1) % 4; await analyseSlot(k);
       if (sl.seg) { views[k] = { seg: sl.seg, canvas: sl.canvas }; notes.push({ view: k, text: `${slotLabel(k)} 사진이 90° 돌아가 있어서 자동으로 회전했어요. 앞뒤가 바뀌었으면 윤곽 편집에서 ⟳ 두 번 눌러 주세요.` }); }
     }
@@ -219,7 +219,7 @@ function showAnalysis(model, sug) {
 }
 
 /* ---------------- material controls ---------------- */
-const RANGES = [['thickness', '유리 두께', 0, 2, .01], ['depth', '내부 깊이', 0, .12, .001], ['ior', '굴절', 1, 2.2, .01], ['roughness', '거칠기', 0, 1, .01], ['envMapIntensity', '반사 강도', 0, 3, .01], ['transmission', '투명도', 0, 1, .01], ['rim', '테두리 빛', 0, 1.2, .01], ['logo', '로고 선명도', 0, 1.5, .01], ['keep', '원본 명암 유지', 0, 1, .01], ['clearcoat', '코팅 광택', 0, 1, .01]];
+const RANGES = [['thickness', '유리 두께', 0, 2, .01], ['depth', '내부 깊이', 0, .12, .001], ['ior', '굴절', 1, 2.2, .01], ['roughness', '거칠기', 0, 1, .01], ['envMapIntensity', '반사 강도', 0, 3, .01], ['transmission', '투명도', 0, 1, .01], ['rim', '테두리 빛', 0, 1.2, .01], ['logo', '로고 선명도', 0, 1.5, .01], ['keep', '원본 명암 유지', 0, 1, .01], ['clearcoat', '코팅 광택', 0, 1, .01], ['emboss', '로고 엠보싱', 0, 1.5, .01], ['micro', '미세 표면 질감', 0, .15, .001], ['sparkle', '반짝임 (글린트)', 0, 1.5, .01], ['film', '무지개 막 흐름', 0, 1, .01], ['iridescence', '무지개 빛', 0, 1, .01], ['dispersion', '빛 분산 (프리즘)', 0, 12, .1]];
 function syncMaterialUI() {
   const o = state.viewer.active; if (!o) return; $('objMat').value = o.params.preset;
   const box = $('objRanges'); box.replaceChildren();
@@ -355,6 +355,7 @@ function wireLook() {
 export function init() {
   buildDOM(); buildSlots(); wireEditor(); wireExports();
   state.viewer = new ObjectViewer($('objCanvas'));
+  { const g = state.viewer.gfx; const el = document.createElement('p'); el.className = 'gfx-tier'; el.id = 'gfxTier'; el.title = g.caps.gpu; el.textContent = `그래픽 품질: ${g.summary}`; $('objStatus').after(el); }
   state.viewer.onFallback = (why) => { $('objBadge').hidden = false; $('objBadge').textContent = why === 'lost' ? '그래픽 장치가 재시작됐어요 · 새로고침해 주세요' : why === 'shader' ? '이 그래픽 카드에 맞게 재질을 가볍게 바꿨어요 (투명·무지개 효과 꺼짐)' : '이 기기에서 후처리가 지원되지 않아 기본 렌더링으로 전환했어요'; };
   document.querySelectorAll('.obj-views button').forEach(b => b.onclick = () => state.viewer.setView(b.dataset.view));
   $('objBuild').onclick = () => generate();

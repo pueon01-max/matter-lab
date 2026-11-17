@@ -35,3 +35,5 @@
 .seg-canvas-wrap canvas{max-width:100%;cursor:crosshair;touch-action:none}
 .seg-tools{display:grid;gap:10px}.seg-row{display:flex;gap:8px}.seg-row .add{flex:1;margin:0}
 @media(max-width:900px){.obj-strip{grid-template-columns:repeat(3,1fr)}.seg-body{grid-template-columns:1fr}}
+
+.gfx-tier { margin: 6px 0 0; font-size: 11px; opacity: .6; letter-spacing: .01em; }

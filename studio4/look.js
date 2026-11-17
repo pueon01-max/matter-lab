@@ -67,8 +67,8 @@ function lightformerScene() {
 }
 
 export class Look {
-  constructor(renderer, scene, camera) {
-    Object.assign(this, { renderer, scene, camera });
+  constructor(renderer, scene, camera, gfx = {}) {
+    Object.assign(this, { renderer, scene, camera, gfx });
     renderer.toneMapping = THREE.AgXToneMapping; renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.pmrem = new THREE.PMREMGenerator(renderer); this.envCache = {};
     this.room = this.pmrem.fromScene(new RoomEnvironment(), .03).texture; scene.environment = this.room;
@@ -76,16 +76,16 @@ export class Look {
     // some GPUs can't render to half-float / multisampled targets → fall back to 8-bit, no MSAA
     const ext = renderer.extensions, canHalf = ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float');
     this.safe = /[?&]safe=1/.test(location.search);
-    this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { type: canHalf ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: canHalf ? 4 : 0 }));
+    this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { type: canHalf ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: canHalf ? (gfx.msaa ?? 4) : 0 }));
     this.composer.addPass(new RenderPass(scene, camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), .3, .55, .85); this.composer.addPass(this.bloom);
     this.post = new ShaderPass(LookShader); this.composer.addPass(this.post);
     this.composer.addPass(new OutputPass());
     // shadow light + floor
-    this.sun = new THREE.DirectionalLight(0xffffff, 0); this.sun.position.set(-2, 6, 3); this.sun.castShadow = true; this.sun.shadow.mapSize.set(1024, 1024); this.sun.shadow.radius = 9; this.sun.shadow.blurSamples = 16;
+    this.sun = new THREE.DirectionalLight(0xffffff, 0); this.sun.position.set(-2, 6, 3); this.sun.castShadow = true; this.sun.shadow.mapSize.setScalar(gfx.shadow || 1024); this.sun.shadow.radius = 9; this.sun.shadow.blurSamples = 16;
     Object.assign(this.sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5, near: .5, far: 20 }); scene.add(this.sun);
     this.shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.ShadowMaterial({ opacity: .22 })); this.shadowFloor.rotation.x = -Math.PI / 2; this.shadowFloor.receiveShadow = true; scene.add(this.shadowFloor);
-    this.mirror = new Reflector(new THREE.CircleGeometry(3.2, 64), { textureWidth: 1024, textureHeight: 1024, color: 0x6c707a, clipBias: .003 }); this.mirror.rotation.x = -Math.PI / 2; scene.add(this.mirror);
+    this.mirror = new Reflector(new THREE.CircleGeometry(3.2, 64), { textureWidth: gfx.mirror || 1024, textureHeight: gfx.mirror || 1024, color: 0x6c707a, clipBias: .003 }); this.mirror.rotation.x = -Math.PI / 2; scene.add(this.mirror);
     this.fade = new THREE.Mesh(new THREE.CircleGeometry(3.22, 64), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })); this.fade.rotation.x = -Math.PI / 2; scene.add(this.fade);
     this.p = {}; this.floorY = -1.2; this.frames = 0; this.checked = false;
   }

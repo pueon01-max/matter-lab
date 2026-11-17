@@ -39,7 +39,7 @@ function chartGeometry(model) {
 export function bakeTexture(renderer, obj, size = 2048) {
   const g = chartGeometry(obj.model);
   const U = {}; for (const k in obj.uniforms) U[k] = { value: obj.uniforms[k].value };
-  U.uDepthAmt = { value: 0 }; U.uEstShow = { value: 0 };
+  U.uDepthAmt = { value: 0 }; U.uEstShow = { value: 0 }; U.uEmboss = { value: 0 };
   const mat = new THREE.ShaderMaterial({
     uniforms: U, side: THREE.DoubleSide, glslVersion: THREE.GLSL3,
     vertexShader: `out vec3 vOP; out vec3 vON; void main(){ vOP=position; vON=normal; gl_Position=vec4(uv.x*2.-1., uv.y*2.-1., 0., 1.); }`,
@@ -116,7 +116,7 @@ const ctl = new OrbitControls(cam, r.domElement); ctl.enableDamping = true; ctl.
 const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(dec(D.pos, Float32Array), 3)); g.setAttribute('normal', new THREE.BufferAttribute(dec(D.nor, Float32Array), 3)); g.setIndex(new THREE.BufferAttribute(dec(D.idx, D.big ? Uint32Array : Uint16Array), 1));
 const U = S.makeUniforms(THREE, model, tex), q = D.params || {};
 const extra = { uKeep: { value: q.keep ?? .6 }, uRim: { value: q.rim ?? .1 }, uRimColor: { value: new THREE.Color(0xdfe8ff) } };
-U.uDepthAmt.value = q.depth ?? 0; U.uLogo.value = q.logo ?? 1;
+U.uDepthAmt.value = q.depth ?? 0; U.uLogo.value = q.logo ?? 1; U.uMicro.value = q.micro ?? 0; U.uEmboss.value = q.emboss ?? 0; U.uSparkle.value = q.sparkle ?? 0; U.uFilm.value = q.film ?? 0;
 const mat = new THREE.MeshPhysicalMaterial({ roughness: q.roughness, metalness: q.metalness, clearcoat: q.clearcoat, clearcoatRoughness: q.clearcoatRoughness, transmission: q.transmission, thickness: q.thickness, ior: q.ior, iridescence: q.iridescence, iridescenceIOR: 1.3, iridescenceThicknessRange: [180, 520], sheen: q.sheen, sheenColor: new THREE.Color(0xffffff), envMapIntensity: q.envMapIntensity, dispersion: q.dispersion || 0, specularIntensity: q.specularIntensity ?? 1 });
 S.patchMaterial(mat, U, extra);
 const mesh = new THREE.Mesh(g, mat); mesh.castShadow = true; mesh.scale.setScalar(D.scale); const holder = new THREE.Group(); holder.add(mesh); scene.add(holder);

@@ -9,13 +9,13 @@
 export const VIEW_ORDER = ['front', 'side', 'top', 'bottom', 'back'];
 
 /* ---------- textures from the photos ---------- */
-export function photoTextures(views, frames) {
+export function photoTextures(views, frames, res = 1024) {
   const out = {};
   for (const n of Object.keys(views)) {
     const { canvas, seg } = views[n], fr = frames[n];
     const k = canvas.width / seg.w;
     const sx = fr.x0 * k, sy = fr.y0 * k, sw = (fr.x1 - fr.x0) * k, sh = (fr.y1 - fr.y0) * k;
-    const s = Math.min(1, 1024 / Math.max(sw, sh)), tw = Math.max(4, Math.round(sw * s)), th = Math.max(4, Math.round(sh * s));
+    const s = Math.min(1, res / Math.max(sw, sh)), tw = Math.max(4, Math.round(sw * s)), th = Math.max(4, Math.round(sh * s));
     // low-res colours bled outward from the product so edges never pick up backdrop
     const mw = fr.x1 - fr.x0, mh = fr.y1 - fr.y0, low = document.createElement('canvas'); low.width = mw; low.height = mh;
     const lx = low.getContext('2d', { willReadFrequently: true }); lx.drawImage(canvas, sx, sy, sw, sh, 0, 0, mw, mh);
@@ -52,14 +52,14 @@ export function photoTextures(views, frames) {
 
 /* ---------- material suggestion from the photos ---------- */
 export const PRESETS = {
-  original: { label: '원본', why: '', p: { roughness: .42, metalness: 0, clearcoat: .25, clearcoatRoughness: .3, transmission: 0, thickness: .3, ior: 1.45, iridescence: 0, envMapIntensity: .8, sheen: 0, keep: .62, depth: 0, rim: .08, logo: 1 } },
-  resin: { label: '투명 레진', why: '', p: { dispersion: 2, roughness: .14, metalness: 0, clearcoat: 1, clearcoatRoughness: .03, transmission: .18, thickness: .4, ior: 1.5, iridescence: 0, envMapIntensity: 1.3, sheen: 0, keep: .84, depth: .045, rim: .45, logo: 1 } },
-  glass: { label: '글라스', why: '', p: { roughness: .02, metalness: 0, clearcoat: 1, clearcoatRoughness: .02, transmission: .95, thickness: 1, ior: 1.5, dispersion: 4, iridescence: .12, envMapIntensity: 1.4, sheen: 0, keep: .3, depth: .03, rim: .35, logo: .9 } },
-  prism: { label: '프리즘 글라스', why: '', p: { roughness: 0, metalness: 0, clearcoat: 1, clearcoatRoughness: 0, transmission: 1, thickness: 1.5, ior: 1.62, dispersion: 10, iridescence: .55, envMapIntensity: 2.2, sheen: 0, keep: .22, depth: .06, rim: .45, logo: 1, specularIntensity: 1 } },
-  jelly: { label: '젤리', why: '', p: { roughness: .26, metalness: 0, clearcoat: .8, clearcoatRoughness: .15, transmission: .55, thickness: 1.1, ior: 1.33, iridescence: 0, envMapIntensity: 1, sheen: .4, keep: .42, depth: .06, rim: .3, logo: .7 } },
-  iridescent: { label: '이리데슨트', why: '', p: { roughness: .16, metalness: .1, clearcoat: 1, clearcoatRoughness: .05, transmission: 0, thickness: .3, ior: 1.5, iridescence: 1, envMapIntensity: 1.3, sheen: 0, keep: .45, depth: .02, rim: .3, logo: 1 } },
-  chrome: { label: '리퀴드 크롬', why: '', p: { roughness: .05, metalness: 1, clearcoat: .6, clearcoatRoughness: .05, transmission: 0, thickness: .3, ior: 1.5, iridescence: 0, envMapIntensity: 1.6, sheen: 0, keep: .1, depth: 0, rim: .15, logo: .6 } },
-  clay: { label: '소프트 클레이', why: '', p: { roughness: .92, metalness: 0, clearcoat: 0, clearcoatRoughness: .5, transmission: 0, thickness: .3, ior: 1.4, iridescence: 0, envMapIntensity: .55, sheen: .6, keep: .35, depth: 0, rim: .05, logo: .8 } },
+  original: { label: '원본', why: '', p: { micro: .015, emboss: .25, sparkle: 0, film: 0, roughness: .42, metalness: 0, clearcoat: .25, clearcoatRoughness: .3, transmission: 0, thickness: .3, ior: 1.45, iridescence: 0, envMapIntensity: .8, sheen: 0, keep: .62, depth: 0, rim: .08, logo: 1 } },
+  resin: { label: '투명 레진', why: '', p: { micro: .01, emboss: .45, sparkle: .25, film: 0, dispersion: 2, roughness: .14, metalness: 0, clearcoat: 1, clearcoatRoughness: .03, transmission: .18, thickness: .4, ior: 1.5, iridescence: 0, envMapIntensity: 1.3, sheen: 0, keep: .84, depth: .045, rim: .45, logo: 1 } },
+  glass: { label: '글라스', why: '', p: { micro: .006, emboss: .2, sparkle: .35, film: .6, roughness: .02, metalness: 0, clearcoat: 1, clearcoatRoughness: .02, transmission: .95, thickness: 1, ior: 1.5, dispersion: 4, iridescence: .12, envMapIntensity: 1.4, sheen: 0, keep: .3, depth: .03, rim: .35, logo: .9 } },
+  prism: { label: '프리즘 글라스', why: '', p: { micro: .004, emboss: .2, sparkle: .55, film: 1, roughness: 0, metalness: 0, clearcoat: 1, clearcoatRoughness: 0, transmission: 1, thickness: 1.5, ior: 1.62, dispersion: 10, iridescence: .55, envMapIntensity: 2.2, sheen: 0, keep: .22, depth: .06, rim: .45, logo: 1, specularIntensity: 1 } },
+  jelly: { label: '젤리', why: '', p: { micro: .03, emboss: .2, sparkle: .15, film: 0, roughness: .26, metalness: 0, clearcoat: .8, clearcoatRoughness: .15, transmission: .55, thickness: 1.1, ior: 1.33, iridescence: 0, envMapIntensity: 1, sheen: .4, keep: .42, depth: .06, rim: .3, logo: .7 } },
+  iridescent: { label: '이리데슨트', why: '', p: { micro: .015, emboss: .35, sparkle: .4, film: 1, roughness: .16, metalness: .1, clearcoat: 1, clearcoatRoughness: .05, transmission: 0, thickness: .3, ior: 1.5, iridescence: 1, envMapIntensity: 1.3, sheen: 0, keep: .45, depth: .02, rim: .3, logo: 1 } },
+  chrome: { label: '리퀴드 크롬', why: '', p: { micro: .02, emboss: .5, sparkle: .3, film: 0, roughness: .05, metalness: 1, clearcoat: .6, clearcoatRoughness: .05, transmission: 0, thickness: .3, ior: 1.5, iridescence: 0, envMapIntensity: 1.6, sheen: 0, keep: .1, depth: 0, rim: .15, logo: .6 } },
+  clay: { label: '소프트 클레이', why: '', p: { micro: .09, emboss: .6, sparkle: 0, film: 0, roughness: .92, metalness: 0, clearcoat: 0, clearcoatRoughness: .5, transmission: 0, thickness: .3, ior: 1.4, iridescence: 0, envMapIntensity: .55, sheen: .6, keep: .35, depth: 0, rim: .05, logo: .8 } },
 };
 
 export function suggestMaterial(tex) {
@@ -81,13 +81,19 @@ export const SURFACE_GLSL = /* glsl */`
 uniform vec3 uDims; uniform float uSideDir; uniform float uCell;
 // 7 samplers in all (photos + one detail atlas + one depth atlas): many Windows GPUs (ANGLE / D3D11) allow only 16
 // per shader, and the physical material already needs several of its own
-uniform sampler2D tF, tS, tT, tB, tK; uniform sampler2D hA; uniform sampler2D dA;
+uniform sampler2D tF, tS, tT, tB, tK; uniform sampler2D hA; uniform sampler2D dA; uniform sampler2D tN;
+uniform float uMicro, uMicroScale, uEmboss, uSparkle, uFilm;
+vec3 mlBump = vec3(0.); // object-space normal tilt from the printed artwork (logo emboss)
+float mlCurW = 0.;
 uniform float onF, onS, onT, onB, onK; uniform float uSharp; uniform vec3 uCamObj;
 uniform float uDepthAmt, uLogo, uEstShow, uInnerBlur; uniform vec3 uEstColor;
 varying vec3 vOP; varying vec3 vON;
 vec2 mlTile(vec2 uv, float i){ return vec2((clamp(uv.x,.004,.996)+i)/5., clamp(uv.y,0.,1.)); }
 float mlVis(float i, vec2 uv, float depth){ if(uv.x<0.||uv.y<0.||uv.x>1.||uv.y>1.) return 0.; float s=texture(dA, mlTile(uv,i)).r; return 1.-smoothstep(uCell*2.5, uCell*5., depth-s); }
+vec3 mlTu = vec3(1.,0.,0.), mlTv = vec3(0.,-1.,0.);
 vec3 mlSample(sampler2D t, float i, vec2 uv, vec2 off){
+  if(uEmboss>0.0001){ vec2 e=vec2(1.5/1024.,0.); float h0=texture(hA, mlTile(uv,i)).r, hx=texture(hA, mlTile(uv+e.xy,i)).r, hy=texture(hA, mlTile(uv+e.yx,i)).r;
+    mlBump += mlCurW*((hx-h0)*mlTu + (hy-h0)*mlTv)*uEmboss*8.; }
   vec3 surf=texture(t, uv).rgb;
   if(uDepthAmt<=0.0001) return surf;
   vec3 inner=texture(t, uv+off, uInnerBlur).rgb;
@@ -98,29 +104,34 @@ vec4 mlSurface(vec3 p, vec3 n){
   vec3 V=normalize(uCamObj-p); vec3 acc=vec3(0.); float wsum=0.;
   float W=uDims.x, H=uDims.y, D=uDims.z;
   // front
-  if(onF>.5){ vec2 uv=vec2((p.x+W*.5)/W,(H*.5-p.y)/H); float w=pow(max(n.z,0.),uSharp)*mlVis(0.,uv,D*.5-p.z); vec2 off=-vec2(V.x/W,-V.y/H)/max(V.z,.3)*uDepthAmt; acc+=w*mlSample(tF,0.,uv,off); wsum+=w; }
+  if(onF>.5){ vec2 uv=vec2((p.x+W*.5)/W,(H*.5-p.y)/H); float w=pow(max(n.z,0.),uSharp)*mlVis(0.,uv,D*.5-p.z); vec2 off=-vec2(V.x/W,-V.y/H)/max(V.z,.3)*uDepthAmt; mlTu=vec3(1.,0.,0.); mlTv=vec3(0.,-1.,0.); mlCurW=w; acc+=w*mlSample(tF,0.,uv,off); wsum+=w; }
   // side
   if(onS>.5){ float sx=uSideDir; vec2 uv= sx>0. ? vec2((D*.5-p.z)/D,(H*.5-p.y)/H) : vec2((p.z+D*.5)/D,(H*.5-p.y)/H);
     float dep= sx>0. ? W*.5-p.x : p.x+W*.5; float w=pow(max(n.x*sx,0.),uSharp)*mlVis(1.,uv,dep);
-    vec2 off=-vec2((sx>0.? -V.z: V.z)/D,-V.y/H)/max(V.x*sx,.3)*uDepthAmt; acc+=w*mlSample(tS,1.,uv,off); wsum+=w; }
+    vec2 off=-vec2((sx>0.? -V.z: V.z)/D,-V.y/H)/max(V.x*sx,.3)*uDepthAmt; mlTu=vec3(0.,0.,-sx); mlTv=vec3(0.,-1.,0.); mlCurW=w; acc+=w*mlSample(tS,1.,uv,off); wsum+=w; }
   // top
-  if(onT>.5){ vec2 uv=vec2((p.x+W*.5)/W,(p.z+D*.5)/D); float w=pow(max(n.y,0.),uSharp)*mlVis(2.,uv,H*.5-p.y); vec2 off=-vec2(V.x/W,V.z/D)/max(V.y,.3)*uDepthAmt; acc+=w*mlSample(tT,2.,uv,off); wsum+=w; }
+  if(onT>.5){ vec2 uv=vec2((p.x+W*.5)/W,(p.z+D*.5)/D); float w=pow(max(n.y,0.),uSharp)*mlVis(2.,uv,H*.5-p.y); vec2 off=-vec2(V.x/W,V.z/D)/max(V.y,.3)*uDepthAmt; mlTu=vec3(1.,0.,0.); mlTv=vec3(0.,0.,1.); mlCurW=w; acc+=w*mlSample(tT,2.,uv,off); wsum+=w; }
   // bottom
-  if(onB>.5){ vec2 uv=vec2((p.x+W*.5)/W,(D*.5-p.z)/D); float w=pow(max(-n.y,0.),uSharp)*mlVis(3.,uv,p.y+H*.5); vec2 off=-vec2(V.x/W,-V.z/D)/max(-V.y,.3)*uDepthAmt; acc+=w*mlSample(tB,3.,uv,off); wsum+=w; }
+  if(onB>.5){ vec2 uv=vec2((p.x+W*.5)/W,(D*.5-p.z)/D); float w=pow(max(-n.y,0.),uSharp)*mlVis(3.,uv,p.y+H*.5); vec2 off=-vec2(V.x/W,-V.z/D)/max(-V.y,.3)*uDepthAmt; mlTu=vec3(1.,0.,0.); mlTv=vec3(0.,0.,-1.); mlCurW=w; acc+=w*mlSample(tB,3.,uv,off); wsum+=w; }
   // back (optional photo)
-  if(onK>.5){ vec2 uv=vec2((W*.5-p.x)/W,(H*.5-p.y)/H); float w=pow(max(-n.z,0.),uSharp)*mlVis(4.,uv,p.z+D*.5); vec2 off=-vec2(-V.x/W,-V.y/H)/max(-V.z,.3)*uDepthAmt; acc+=w*mlSample(tK,4.,uv,off); wsum+=w; }
+  if(onK>.5){ vec2 uv=vec2((W*.5-p.x)/W,(H*.5-p.y)/H); float w=pow(max(-n.z,0.),uSharp)*mlVis(4.,uv,p.z+D*.5); vec2 off=-vec2(-V.x/W,-V.y/H)/max(-V.z,.3)*uDepthAmt; mlTu=vec3(-1.,0.,0.); mlTv=vec3(0.,-1.,0.); mlCurW=w; acc+=w*mlSample(tK,4.,uv,off); wsum+=w; }
   // estimate for faces no photo saw: a heavily blurred, low-detail version of the nearest photo's colours
-  vec3 est=mix(uEstColor, texture(tF, vec2(.5+.35*sign(p.x)*min(abs(p.x)/W*2.,1.), (H*.5-p.y)/H), 7.).rgb, .3);
+  // (the front photo at the same height, so heavily blurred that no logo or type survives — liquid levels,
+  //  caps and colour bands carry round to the unseen side, never a readable or mirrored print)
+  vec3 est=mix(uEstColor, texture(tF, vec2(clamp((p.x+W*.5)/W,.02,.98), (H*.5-p.y)/H), 4.6).rgb, .72);
   float seen=clamp(wsum*3.,0.,1.);
   vec3 col= wsum>0.0001 ? acc/wsum : est;
   col=mix(est,col,seen);
   float estimated=1.-seen;
   if(uEstShow>.5){ float stripe=step(.5,fract((p.x+p.y*1.3+p.z)*7./max(W,max(H,D))*4.)); col=mix(col, mix(vec3(.55,.95,.45),vec3(.15,.35,.12),stripe), estimated*.55); }
+  if(wsum>0.0001) mlBump/=wsum;
   return vec4(col, estimated);
 }
+// tileable noise sampled on three axes: micro surface relief, sparkle and film thickness
+vec4 mlNoise(vec3 p, vec3 n){ vec3 b=pow(abs(n),vec3(4.)); b/=b.x+b.y+b.z+1e-5; return texture(tN,p.yz)*b.x+texture(tN,p.xz)*b.y+texture(tN,p.xy)*b.z; }
 `;
 
-export function makeUniforms(THREE, model, tex) {
+export function makeUniforms(THREE, model, tex, opt = {}) {
   const blank = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1); blank.needsUpdate = true;
   const blankD = new THREE.DataTexture(new Float32Array([1e3]), 1, 1, THREE.RedFormat, THREE.FloatType); blankD.needsUpdate = true;
   const U = {
@@ -130,7 +141,7 @@ export function makeUniforms(THREE, model, tex) {
   };
   const key = { front: 'F', side: 'S', top: 'T', bottom: 'B', back: 'K' }, slot = { front: 0, side: 1, top: 2, bottom: 3, back: 4 };
   // detail maps → one 5-tile atlas; depth maps → one 5-tile float atlas
-  const TS = 512, hc = document.createElement('canvas'); hc.width = TS * 5; hc.height = TS;
+  const TS = opt.tile || 512, hc = document.createElement('canvas'); hc.width = TS * 5; hc.height = TS;
   const hx = hc.getContext('2d'); hx.fillStyle = '#000'; hx.fillRect(0, 0, hc.width, hc.height);
   const R = Math.max(1, ...VIEW_ORDER.filter(n => model.depth?.[n]).map(n => model.depth[n].R)), dd = new Float32Array(R * 5 * R).fill(1e3);
   for (const n of VIEW_ORDER) {
@@ -146,8 +157,32 @@ export function makeUniforms(THREE, model, tex) {
   }
   const hA = new THREE.CanvasTexture(hc); hA.flipY = false; hA.wrapS = hA.wrapT = THREE.ClampToEdgeWrapping;
   const dA = new THREE.DataTexture(dd, R * 5, R, THREE.RedFormat, THREE.FloatType); dA.flipY = false; dA.magFilter = dA.minFilter = THREE.NearestFilter; dA.needsUpdate = true;
-  U.hA = { value: hA }; U.dA = { value: dA };
+  U.hA = { value: hA }; U.dA = { value: dA }; U.tN = { value: noiseTexture(THREE) };
+  Object.assign(U, { uMicro: { value: 0 }, uMicroScale: { value: 2.2 }, uEmboss: { value: 0 }, uSparkle: { value: 0 }, uFilm: { value: 0 } });
   return U;
+}
+
+/* 256² tileable value-noise (4 octaves, independent per channel) — one texture serves relief, sparkle and film */
+let NOISE = null;
+function noiseTexture(THREE) {
+  if (NOISE) return NOISE;
+  const S = 256, d = new Uint8Array(S * S * 4);
+  for (let c = 0; c < 4; c++) {
+    const acc = new Float32Array(S * S); let amp = 1, tot = 0;
+    for (const f of [8, 16, 32, 64]) {
+      const g = new Float32Array(f * f); for (let i = 0; i < g.length; i++) g[i] = Math.random();
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const fx = x / S * f, fy = y / S * f, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+        const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty), at = (a, b) => g[((b + f) % f) * f + ((a + f) % f)];
+        acc[y * S + x] += amp * ((at(x0, y0) * (1 - sx) + at(x0 + 1, y0) * sx) * (1 - sy) + (at(x0, y0 + 1) * (1 - sx) + at(x0 + 1, y0 + 1) * sx) * sy);
+      }
+      tot += amp; amp *= c === 3 ? .8 : .5;
+    }
+    for (let i = 0; i < S * S; i++) d[i * 4 + c] = Math.round(acc[i] / tot * 255);
+  }
+  NOISE = new THREE.DataTexture(d, S, S, THREE.RGBAFormat); NOISE.wrapS = NOISE.wrapT = THREE.RepeatWrapping;
+  NOISE.magFilter = THREE.LinearFilter; NOISE.minFilter = THREE.LinearMipmapLinearFilter; NOISE.generateMipmaps = true; NOISE.needsUpdate = true;
+  return NOISE;
 }
 
 /** Turn a MeshPhysicalMaterial into the photo-surface material. */
@@ -158,8 +193,19 @@ export function patchMaterial(mat, U, extra) {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvOP = position; vON = normal;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + SURFACE_GLSL + '\nuniform float uKeep; uniform float uRim; uniform vec3 uRimColor;')
       .replace('#include <map_fragment>', 'vec4 mlS = mlSurface(vOP, normalize(vON)); vec3 mlBase = mlS.rgb; /* textures are sRGB-decoded by the GPU */\n diffuseColor.rgb *= mlBase * (1. - uKeep);')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += mlBase * uKeep; totalEmissiveRadiance += uRimColor * pow(1. - clamp(dot(normal, normalize(vViewPosition)), 0., 1.), 4.) * uRim;');
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+ vec3 mlN0 = normalize(vON); vec4 mlNz = mlNoise(vOP * uMicroScale, mlN0);
+ { vec3 r = mlNz.rgb * 2. - 1.; vec3 tilt = (r - mlN0 * dot(r, mlN0)) * uMicro - (mlBump - mlN0 * dot(mlBump, mlN0));
+   if (uMicro + uEmboss > 0.0001) normal = normalize(normal + mat3(viewMatrix) * tilt * faceDirection); }`)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+ #ifdef USE_IRIDESCENCE
+   material.iridescenceThickness *= mix(1., mix(.35, 1.45, mlNoise(vOP * .7, mlN0).g), uFilm);
+ #endif`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+ totalEmissiveRadiance += mlBase * uKeep; totalEmissiveRadiance += uRimColor * pow(1. - clamp(dot(normal, normalize(vViewPosition)), 0., 1.), 4.) * uRim;
+ if (uSparkle > 0.0001) { vec3 Vv = normalize(vViewPosition); vec4 g = mlNoise(vOP * 9. + Vv * .35, mlN0); float glint = pow(max(g.a, 0.), 26.) * 60. * pow(max(dot(normal, Vv), 0.), .5);
+   totalEmissiveRadiance += vec3(glint) * uSparkle; }`);
   };
-  mat.customProgramCacheKey = () => 'ml-surface-v1';
+  mat.customProgramCacheKey = () => 'ml-surface-v2';
   mat.needsUpdate = true;
 }
